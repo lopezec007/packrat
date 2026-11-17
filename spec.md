@@ -120,7 +120,7 @@ SQLite).
 The objective of this tool is to have a single master "library" of items that lists can draw from.  We'll need one page
 to manage this.
 
-The user should be able to create a new list either from scratch or from the intersection of any number of other lists
+The user should be able to create a new list either from scratch or from the union of any number of other lists
 ("templates" or not).  The only purpose of the "template" flag is to indicate that that list is intended to be used as
 a template.
 

@@ -1,0 +1,9 @@
+/packrat
+/bin/
+/dist/
+node_modules/
+e2e/test-results/
+e2e/playwright-report/
+/.claude/worktrees/
+*.env
+!deploy/packrat.env.example

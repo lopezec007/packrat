@@ -1,0 +1,352 @@
+/* Base styles shared by every page: theme tokens, title bar and navigation,
+   the grid table, form controls, popovers, chips and dialogs. The look is the
+   planner's and Squirrel's (same tokens, same table and header band).
+   Page-specific styles live in their own files (lists.css, list.css,
+   config.css). */
+
+/* ---------- theme tokens ---------- */
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --bg-alt: #f5f6f8;
+  --bg-hover: #eef1f5;
+  --fg: #1c1f24;
+  --fg-muted: #6b7280;
+  --border: #d9dde3;
+  --border-strong: #9aa3ad;
+  --accent: #2f6fdb;
+  --accent-fg: #ffffff;
+  --orange: #e8891c;
+  --orange-bg: rgba(232, 137, 28, 0.18);
+  --red: #d62828;
+  --red-bg: rgba(214, 40, 40, 0.18);
+  --green: #2e8540;
+  --green-bg: rgba(46, 133, 64, 0.16);
+  --mask: rgba(128, 128, 128, 0.45);
+  --code-bg: rgba(100, 110, 125, 0.16);
+  --radius: 6px;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --row-h: 34px;
+  --page-gap: 12px; /* between the title bar and the content; sticky header rows rest here (see main::before) */
+  --gap-overlap: 3px;
+  --header-bg: color-mix(in srgb, var(--accent) 9%, var(--bg-alt));
+  --header-border: color-mix(in srgb, var(--accent) 35%, var(--border));
+  --header-fg: color-mix(in srgb, var(--fg) 65%, var(--fg-muted));
+  --header-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  --pop-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15171b;
+    --bg-alt: #1d2026;
+    --bg-hover: #262a32;
+    --fg: #cdd2d8; /* a soft grey-white: pure white on the dark page is harsh */
+    --fg-muted: #9aa3ad;
+    --border: #353a43;
+    --border-strong: #6b7380;
+    --accent: #6ea0ff;
+    --accent-fg: #0b1220;
+    --orange: #f3a24a;
+    --orange-bg: rgba(243, 162, 74, 0.22);
+    --red: #ff5c5c;
+    --red-bg: rgba(255, 92, 92, 0.22);
+    --green: #5fc27a;
+    --green-bg: rgba(95, 194, 122, 0.18);
+    --mask: rgba(60, 60, 60, 0.55);
+    --code-bg: rgba(255, 255, 255, 0.11);
+    --header-bg: color-mix(in srgb, var(--accent) 14%, var(--bg-alt));
+    --header-border: color-mix(in srgb, var(--accent) 40%, var(--border));
+    --header-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+    --pop-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+  }
+}
+
+/* ---------- base ---------- */
+* { box-sizing: border-box; }
+html { height: 100%; }
+body {
+  margin: 0; min-height: 100%;
+  font-family: var(--font); font-size: 14px; color: var(--fg); background: var(--bg);
+  display: flex; flex-direction: column;
+}
+a { color: var(--accent); }
+h1 { font-size: 18px; margin: 0 0 12px; }
+h2 { font-size: 15px; margin: 0 0 10px; }
+h3 { font-size: 13px; margin: 0 0 6px; }
+[hidden] { display: none !important; }
+button, select, input, textarea {
+  font: inherit; color: inherit; background: var(--bg);
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 8px;
+}
+input:focus-visible, select:focus-visible, textarea:focus-visible { outline: none; border-color: var(--accent); }
+button { cursor: pointer; background: var(--bg-alt); }
+button:hover { background: var(--bg-hover); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+button.primary:hover { background: color-mix(in srgb, var(--accent) 88%, var(--fg)); }
+button.danger:hover { color: var(--red); border-color: var(--red); }
+button.active { outline: 2px solid var(--accent); outline-offset: -2px; }
+button.icon { padding: 2px 6px; line-height: 1; }
+button.bare { background: transparent; border-color: transparent; color: var(--fg-muted); }
+button.bare:hover { background: var(--bg-hover); color: var(--fg); }
+button:disabled { opacity: 0.5; cursor: default; }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
+input::placeholder, textarea::placeholder { color: var(--fg-muted); }
+.icon { display: block; flex: 0 0 auto; }
+
+/* ---------- title bar ---------- */
+.topbar {
+  display: flex; align-items: center; gap: 10px; padding: 8px 16px;
+  border-bottom: 1px solid var(--border); background: var(--bg-alt);
+  position: sticky; top: 0; z-index: 10;
+}
+.brand { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; letter-spacing: 0.01em; color: var(--fg); text-decoration: none; flex: 0 0 auto; }
+.brand svg { display: block; }
+/* Page navigation: a joined group of buttons, the current page in accent. */
+.nav { display: flex; gap: 0; flex: 0 0 auto; }
+.nav a {
+  display: inline-flex; align-items: center; min-height: 30px; padding: 4px 11px;
+  border: 1px solid var(--border); margin-left: -1px; background: var(--bg-alt);
+  color: var(--fg); text-decoration: none; white-space: nowrap;
+}
+.nav a:first-child { border-radius: var(--radius) 0 0 var(--radius); margin-left: 0; }
+.nav a:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
+.nav a:hover { background: var(--bg-hover); }
+.nav a[aria-current="page"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); position: relative; z-index: 1; }
+.icon-btn {
+  flex: 0 0 auto; width: 34px; height: 32px; padding: 0; font-size: 19px; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center; text-decoration: none;
+  background: transparent; border: 1px solid transparent; border-radius: var(--radius); color: var(--fg);
+}
+.icon-btn:hover, .icon-btn[aria-current="page"] { background: var(--bg-hover); border-color: var(--border); }
+/* The current page's own controls (view switch, filters, add...). */
+.toolbar { display: flex; gap: 6px; align-items: center; flex: 1; flex-wrap: wrap; min-width: 0; }
+.toolbar .spacer { flex: 1; }
+.toolbar .group { display: flex; gap: 0; }
+.toolbar .group button { border-radius: 0; margin-left: -1px; }
+.toolbar .group button:first-child { border-radius: var(--radius) 0 0 var(--radius); margin-left: 0; }
+.toolbar .group button:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
+.toolbar button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-height: 30px; }
+.toolbar .label { color: var(--fg-muted); font-size: 12px; }
+.version { color: var(--fg-muted); font-size: 12px; font-family: var(--mono); padding: 0 4px; cursor: help; flex: 0 0 auto; }
+
+/* The gap between the title bar and the content is a sticky strip in the page
+   colour (not padding), so sticky header rows pin at their resting place and
+   rows scrolling past are hidden under the strip (as in the planner). */
+main { padding: 0 16px var(--page-gap); flex: 1; min-width: 0; }
+main::before {
+  content: ''; display: block; position: sticky; top: calc(var(--topbar-h, 48px) - 1px); z-index: 8;
+  height: calc(var(--page-gap) + 1px + var(--gap-overlap)); margin: 0 -16px calc(-1px - var(--gap-overlap));
+  background: var(--bg);
+}
+.empty { color: var(--fg-muted); padding: 24px; text-align: center; }
+.hint { color: var(--fg-muted); margin: 0 0 12px; }
+.muted { color: var(--fg-muted); }
+.toast {
+  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+  background: var(--red); color: #fff; padding: 8px 14px; border-radius: var(--radius);
+  z-index: 100; max-width: min(720px, calc(100vw - 32px)); box-shadow: var(--pop-shadow);
+}
+.toast.info { background: var(--fg); color: var(--bg); }
+.toast:not([hidden]) { display: flex; align-items: center; gap: 12px; }
+.toast-action { padding: 1px 10px; background: transparent; color: inherit; border-color: currentColor; font-weight: 600; }
+.toast-action:hover { background: rgba(128, 128, 128, 0.3); }
+
+/* ---------- sections and cards ---------- */
+.section { margin: 0 0 28px; }
+.section > h2 { padding-bottom: 6px; border-bottom: 1px solid var(--border); display: flex; align-items: baseline; gap: 10px; }
+.section > h2 .muted { font-weight: 400; font-size: 13px; }
+.card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); padding: 12px 14px; }
+.cards { display: flex; flex-wrap: wrap; gap: 12px; }
+
+/* ---------- grid table ----------
+   One grid template (--cols, set per table) for every row so columns line
+   up. The table is not a scroll container (that would pin the sticky header
+   to the table instead of the window): it grows to its columns' minimum
+   width and the page scrolls sideways on a narrow window. */
+.table {
+  --cols: 1fr;
+  width: fit-content; min-width: 100%;
+  border: 1px solid var(--border); border-radius: var(--radius);
+}
+.table-wrap.constrained { max-width: 1500px; margin: 0 auto; }
+.row {
+  display: grid; grid-template-columns: var(--cols); align-items: center;
+  min-height: var(--row-h); border-top: 1px solid var(--border); position: relative;
+}
+.row:first-child { border-top: none; }
+.row:last-child { border-radius: 0 0 var(--radius) var(--radius); }
+.row > * { padding: 4px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; min-width: 0; }
+.row:not(.header):not(.editing):not(.detail):not(.group-row):not(.total-row):not(.entry):hover { background: var(--bg-hover); }
+/* The header row: a tinted, framed band pinned under the title bar. The row
+   itself is a square page-colour backing; the pseudo-element over it (behind
+   the cells) is the tinted frame, 1px wider so it covers the table border. */
+.row.header {
+  background: var(--bg); color: var(--header-fg); font-weight: 600; font-size: 12px;
+  text-transform: uppercase; letter-spacing: 0.04em; min-height: 36px;
+  position: sticky; top: calc(var(--topbar-h, 48px) + var(--page-gap) + 1px); z-index: 9;
+}
+.row.header::before {
+  content: ''; position: absolute; inset: -1px; z-index: -1;
+  background: var(--header-bg); border: 1px solid var(--header-border);
+  border-radius: var(--radius) var(--radius) 0 0; box-shadow: var(--header-shadow);
+}
+/* A table further down a page (not the first thing under the title bar)
+   keeps its header in the flow. */
+.table.static-header .row.header { position: relative; top: auto; z-index: 1; }
+.row.header .sortable { cursor: pointer; user-select: none; gap: 3px; }
+.row.header .sortable:hover { color: var(--fg); }
+.row .num { justify-content: flex-end; font-variant-numeric: tabular-nums; }
+.row .center { justify-content: center; }
+.row .mono { font-family: var(--mono); font-size: 12.5px; }
+.row .actions { display: flex; gap: 4px; justify-content: flex-end; align-items: center; overflow: visible; }
+.row .actions > button { flex: 0 0 auto; width: 24px; height: 24px; padding: 0; line-height: 0; display: inline-flex; align-items: center; justify-content: center; }
+.row .actions > button:not(.primary) { background: transparent; border-color: transparent; color: var(--fg-muted); }
+.row .actions > button:not(.primary):hover { background: var(--bg-hover); color: var(--fg); }
+.row .actions > button.danger:hover { color: var(--red); }
+.row .actions .icon { width: 14px; height: 14px; }
+/* A band that groups the rows beneath it (Lists / Templates). */
+.row.group-row { background: color-mix(in srgb, var(--bg-alt) 70%, var(--bg)); font-weight: 600; }
+.row.total-row { font-weight: 650; background: var(--bg-alt); border-top: 2px solid var(--border-strong); }
+/* New (unsaved) row: an accent bar down the left. */
+.row.new { box-shadow: inset 3px 0 0 0 var(--accent); }
+/* A detail row spanning the table under its item row. */
+.row.detail { display: block; border-top: none; padding: 2px 8px 10px; }
+.row.detail > * { display: block; white-space: normal; overflow: visible; padding: 0; }
+.caret {
+  flex: 0 0 auto; width: 24px; height: 24px; padding: 0; border: none; background: transparent;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--fg-muted); cursor: pointer; font-size: 11px; line-height: 1;
+}
+.caret::before { content: "▸"; display: inline-block; transition: transform 0.1s; }
+.caret[aria-expanded="true"]::before { transform: rotate(90deg); }
+.caret:hover { color: var(--fg); background: transparent; }
+
+/* ---------- inline editing (every field is a live control) ---------- */
+.cell-input, .cell-select {
+  width: 100%; min-width: 0; background: transparent; border: 1px solid transparent;
+  border-radius: 4px; padding: 2px 4px; font: inherit; color: inherit;
+}
+.cell-input:hover, .cell-select:hover { border-color: var(--border); }
+.cell-input:focus, .cell-select:focus { outline: none; border-color: var(--accent); background: var(--bg); }
+.cell-input.num { text-align: right; font-variant-numeric: tabular-nums; }
+.cell-input.invalid, input.invalid, select.invalid { border-color: var(--red) !important; background: var(--red-bg); }
+.cell-select { cursor: pointer; }
+/* Text that becomes an editor on click. */
+.cell-text { cursor: text; padding: 2px 4px; border: 1px solid transparent; border-radius: 4px; min-height: 22px; min-width: 24px; overflow: hidden; text-overflow: ellipsis; }
+.cell-text:hover { border-color: var(--border); }
+.cell-text.empty { color: var(--fg-muted); font-style: italic; }
+.cell-text:focus-visible { outline: 2px solid var(--accent); }
+
+/* ---------- chips and badges ---------- */
+.chip {
+  display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 500;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  background: var(--bg-alt); border: 1px solid var(--border);
+}
+.chip.colored { border-color: transparent; }
+.chip.small { font-size: 11px; padding: 0 6px; line-height: 16px; }
+.badge {
+  display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px;
+  background: var(--accent); color: var(--accent-fg);
+  font-size: 11px; font-weight: 600; line-height: 18px; text-align: center;
+}
+/* A colour dot before a name (a status in a picker). */
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; margin-right: 6px; }
+
+/* ---------- popovers, menus and pickers (js/widgets.js) ---------- */
+.popover {
+  position: fixed; z-index: 60; padding: 10px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow: auto;
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--pop-shadow); font-size: 13px; font-weight: normal; white-space: normal;
+}
+.popover.flush { padding: 0; }
+/* Combo box: a text input with a list of matches under it. */
+.combo { position: relative; display: inline-flex; min-width: 0; width: 100%; }
+.combo-input { width: 100%; min-width: 0; text-overflow: ellipsis; }
+.combo-list { padding: 4px 0; min-width: 180px; max-width: min(520px, calc(100vw - 16px)); max-height: 320px; overflow-y: auto; white-space: nowrap; }
+.combo-group { padding: 6px 10px 2px; color: var(--fg-muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+.combo-opt { display: flex; gap: 8px; align-items: baseline; padding: 4px 10px; cursor: pointer; }
+.combo-opt.active { background: var(--bg-hover); }
+.combo-opt .combo-label { overflow: hidden; text-overflow: ellipsis; }
+.combo-opt .dot { margin-right: 0; align-self: center; }
+.combo-opt .combo-hint { color: var(--fg-muted); font-size: 11.5px; margin-left: auto; padding-left: 12px; }
+.combo-opt.create { color: var(--accent); }
+.combo-empty { padding: 4px 10px; color: var(--fg-muted); font-style: italic; }
+/* Multi-select filter: a button with a count badge and a checklist popover. */
+.multi-btn { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; white-space: nowrap; }
+.multi-btn.on { border-color: var(--accent); }
+.multi-panel { width: 260px; display: flex; flex-direction: column; gap: 6px; }
+.multi-search { width: 100%; }
+.multi-actions { display: flex; gap: 6px; }
+.multi-actions button { font-size: 12px; padding: 1px 8px; }
+.multi-list { max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; margin: 0 -4px; }
+.multi-opt { display: flex; align-items: center; gap: 7px; padding: 3px 4px; border-radius: 4px; cursor: pointer; }
+.multi-opt:hover { background: var(--bg-hover); }
+.multi-opt input { margin: 0; flex: 0 0 auto; }
+.multi-opt span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.multi-group { padding: 6px 4px 2px; color: var(--fg-muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+/* Simple menu of actions. */
+.menu { display: flex; flex-direction: column; min-width: 160px; padding: 4px 0; }
+.menu button { border: none; border-radius: 0; background: transparent; text-align: left; padding: 6px 12px; }
+.menu button:hover { background: var(--bg-hover); }
+
+/* ---------- forms and dialogs ---------- */
+.field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.field > label, .field-label { font-size: 11px; font-weight: 600; color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.02em; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px 14px; }
+.form-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.modal-backdrop { position: fixed; inset: 0; z-index: 80; background: rgba(0, 0, 0, 0.4); display: flex; align-items: flex-start; justify-content: center; padding: 8vh 16px 16px; overflow: auto; }
+.modal {
+  width: min(640px, 100%); background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35); display: flex; flex-direction: column;
+}
+.modal.wide { width: min(980px, 100%); }
+.modal-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.modal-head h2 { margin: 0; flex: 1; }
+.modal-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+.modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border); }
+.modal-foot .spacer { flex: 1; }
+
+/* ---------- statuses ----------
+   A status is shown as a pill in its own colour (--c, set inline) with text
+   in whichever of black or white reads better on it (--t). */
+.status-chip {
+  --c: var(--fg-muted); --t: #fff;
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 22px; padding: 1px 9px;
+  border: 1px solid transparent; border-radius: 11px; background: var(--c); color: var(--t);
+  font-size: 12px; font-weight: 600; line-height: 1.3; white-space: nowrap;
+}
+.status-chip > .name { overflow: hidden; text-overflow: ellipsis; }
+button.status-chip { cursor: pointer; }
+button.status-chip:hover { background: color-mix(in srgb, var(--c) 86%, var(--fg)); }
+/* The key that assigns a status, drawn as a key cap. */
+kbd, .key-cap {
+  display: inline-block; min-width: 18px; padding: 0 5px; border: 1px solid var(--border-strong); border-bottom-width: 2px;
+  border-radius: 4px; background: var(--bg); color: var(--fg); font-family: var(--mono); font-size: 11px; font-weight: 600;
+  line-height: 16px; text-align: center; text-transform: uppercase;
+}
+.status-chip .key-cap { border-color: rgba(0, 0, 0, 0.3); background: rgba(255, 255, 255, 0.85); color: #1c1f24; }
+
+/* Each visit to a page renders into slots of its own inside <main> and the
+   toolbar (js/app.js); a slot lays its children out as if it were not there. */
+.slot { display: contents; }
+
+/* ---------- narrow windows (a phone, while packing) ----------
+   The title bar becomes two bands: the brand, pages, version and settings
+   first, then the page's own controls on lines of their own. It scrolls away
+   with the page rather than staying pinned (it can be a third of the screen),
+   and pinned header rows rest at the top of the window instead (js/app.js
+   sets --topbar-h to 0). */
+.toolbar button, .toolbar .chip { white-space: nowrap; }
+@media (max-width: 760px) {
+  .topbar { flex-wrap: wrap; padding: 8px 12px; row-gap: 8px; position: static; }
+  .nav { margin-right: auto; }
+  .toolbar { order: 5; flex: 1 0 100%; }
+  .toolbar .filter-box { max-width: none; }
+  main { padding-left: 12px; padding-right: 12px; }
+  main::before { margin-left: -12px; margin-right: -12px; }
+  .modal-backdrop { padding: 12px; }
+}
