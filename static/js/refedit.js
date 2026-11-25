@@ -3,7 +3,8 @@
 // columns; every field of an existing row is a live control that saves when
 // it changes (no edit mode, no Save button), and a new row is a draft with an
 // accent bar that is created with Save / Enter or dropped with Cancel /
-// Escape.
+// Escape. Enter also opens the next draft, so a run of rows can be typed in
+// one after another; Escape (or Cancel) on an empty draft ends the run.
 //
 //   refTable(config)          a whole framed table for one reference table:
 //                             header, sorted rows, filter, draft
@@ -19,6 +20,7 @@
 //     sort: (a, b) => number,             row order when the table is built (default: by label)
 //     emptyText: 'No items yet.',
 //     actionsWidth: '40px',
+//     rowActions: (row) => [button, ...]  extra buttons at the end of each saved row, before Delete
 //     onChange() {},                      a row was created, saved or deleted
 //   }
 //
@@ -35,6 +37,7 @@
 //     options: 'item_categories' | () => [{value, label}]   select: a reference table (sorted by name) or a list
 //     create: {noun: 'category'}                            select from a table: adds a "New category…" choice
 //     default: value | () => value                          the value a draft row starts with
+//     carry: true               a run of new rows (Enter after Enter) starts each with the last one's value
 //     render: (row) => node | text                          computed: the cell's content
 //   }
 //
@@ -327,7 +330,7 @@ function liveRow(spec, initial, hooks = {}) {
     return c;
   });
   const deleteBtn = iconButton('trash', { class: 'danger delete', title: 'Delete', onClick: remove });
-  rowEl.append(...cells.map((c) => c.cell), el('div', { class: 'actions', role: 'cell' }, deleteBtn));
+  rowEl.append(...cells.map((c) => c.cell), el('div', { class: 'actions', role: 'cell' }, spec.rowActions ? spec.rowActions(row) : null, deleteBtn));
 
   /** Bring every control in line with `row`; the one being typed in is left alone. */
   function draw() {
@@ -381,7 +384,13 @@ function liveRow(spec, initial, hooks = {}) {
 
 // ---------------------------------------------------------------- a new (unsaved) row
 
-/** A draft row: the same columns as empty controls, an accent bar, Save and Cancel. Enter saves, Escape cancels. */
+/**
+ * A draft row: the same columns as empty controls, an accent bar, Save and
+ * Cancel. Enter saves, Escape cancels. hooks: {start: {key: value} values to
+ * begin with instead of the columns' defaults, onSaved(row, again) with
+ * again = it was saved with Enter (the caller opens the next draft),
+ * onCancel()}.
+ */
 function draftRow(spec, hooks = {}) {
   let busy = false;
   const rowEl = el('div', { class: 'row new', role: 'row' });
@@ -391,18 +400,19 @@ function draftRow(spec, hooks = {}) {
     c.cell = el('div', { class: cellClass(col, editable) || null, role: 'cell', dataset: { col: col.key } });
     if (editable) {
       c.ed = makeEditor(col, { draft: true, label: `${col.label} of the new ${spec.noun}`, row: () => null, commit() {} });
-      c.ed.show(resolve(col.default) ?? (col.kind === 'check' ? false : null), null);
+      const start = hooks.start && col.key in hooks.start ? hooks.start[col.key] : resolve(col.default);
+      c.ed.show(start ?? (col.kind === 'check' ? false : null), null);
       c.cell.append(...c.ed.nodes.filter(Boolean));
     }
     return c;
   });
-  const saveBtn = iconButton('check', { class: 'primary save', title: 'Save (Enter)', 'aria-label': `Save the new ${spec.noun}`, onClick: save });
+  const saveBtn = iconButton('check', { class: 'primary save', title: 'Save (Enter saves and starts the next one)', 'aria-label': `Save the new ${spec.noun}`, onClick: () => save(false) });
   const cancelBtn = iconButton('x', { class: 'cancel', title: 'Cancel (Escape)', 'aria-label': `Discard the new ${spec.noun}`, onClick: cancel });
   rowEl.append(...cells.map((c) => c.cell), el('div', { class: 'actions', role: 'cell' }, saveBtn, cancelBtn));
 
   const focus = () => cells.find((c) => c.ed && c.ed.control)?.ed.focus();
 
-  async function save() {
+  async function save(again) {
     if (busy) return;
     const body = {};
     let firstBad = null;
@@ -426,7 +436,7 @@ function draftRow(spec, hooks = {}) {
       busy = false;
       saveBtn.disabled = false;
     }
-    if (hooks.onSaved) hooks.onSaved(row);
+    if (hooks.onSaved) hooks.onSaved(row, again);
   }
 
   function cancel() { if (hooks.onCancel) hooks.onCancel(); }
@@ -444,7 +454,7 @@ function draftRow(spec, hooks = {}) {
     if (e.key !== 'Escape' && e.key !== 'Enter') return;
     if (onSelect && listOpen) { listOpen = false; return; }
     if (e.key === 'Escape') { e.preventDefault(); cancel(); }
-    else if (!e.target.closest('button')) { e.preventDefault(); save(); }
+    else if (!e.target.closest('button')) { e.preventDefault(); save(true); }
   });
 
   return { el: rowEl, focus };
@@ -457,7 +467,8 @@ function draftRow(spec, hooks = {}) {
  *
  *   const t = refTable(config);     see the top of this file
  *   t.el                             the element to insert
- *   t.addDraft(returnFocusTo)        open (or focus) the new-row draft, right under the header
+ *   t.addDraft(returnFocusTo)        open (or focus) the new-row draft, right under the header;
+ *                                    saving it with Enter opens the next one
  *   t.setFilter(text)                show only rows containing every word
  *   t.counts()                       {total, shown}
  *   t.refresh()                      redraw every row from the cache (options, computed cells)
@@ -506,18 +517,23 @@ export function refTable(config) {
   for (const row of [...ref[spec.table]].sort(sort)) note.before(add(row).el);
   sync();
 
-  return {
+  const this_ = {
     el: table,
-    addDraft(returnFocusTo = null) {
+    addDraft(returnFocusTo = null, start = null) {
       if (draft) { draft.focus(); return; }
       draft = draftRow(spec, {
-        onSaved(row) {
+        start,
+        onSaved(row, again) {
           const h = add(row);
           fresh.add(row.id);
           draft.el.replaceWith(h.el);
           draft = null;
           changed();
-          if (returnFocusTo) returnFocusTo.focus();
+          if (again) {
+            // Saved with Enter: straight on to the next one, starting with what the columns marked `carry` had.
+            const carried = Object.fromEntries(spec.columns.filter((c) => c.carry && row[c.key] != null).map((c) => [c.key, row[c.key]]));
+            this_.addDraft(returnFocusTo, carried);
+          } else if (returnFocusTo) returnFocusTo.focus();
         },
         onCancel() { draft.el.remove(); draft = null; sync(); if (returnFocusTo) returnFocusTo.focus(); },
       });
@@ -532,4 +548,5 @@ export function refTable(config) {
     },
     refresh() { for (const h of handles.values()) h.refresh(); sync(); },
   };
+  return this_;
 }

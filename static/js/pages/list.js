@@ -12,17 +12,22 @@
 // The view is {el, render(), showSelection(reveal), key(event) -> handled,
 // updateRow(id), focusDraft(), destroy()}.
 //
-// URL parameter: id (the list). The sort order is remembered per browser;
-// the closed containers per browser and list.
+// URL parameter: id (the list). The sort (list/sort.js) and whether the category
+// and storage location are shown are remembered per browser; the closed
+// containers per browser and list.
+//
+// Printing (the ⋯ menu, or the browser's own Print) prints what is on screen:
+// see @media print in css/list.css.
 
 import { api } from '../api.js';
-import { reloadRef, statuses, statusForKey } from '../state.js';
+import { ref, reloadRef, statuses, statusForKey, compartmentsOf } from '../state.js';
 import { el, toast, sentence, plural, fold, typingTarget, prefs, byText } from '../util.js';
 import { icon } from '../icons.js';
 import { menuButton, multiSelect, modal, popover, overlayOpen } from '../widgets.js';
 import { promptText } from '../refedit.js';
 import { statusChip, countByStatus } from '../status.js';
-import { buildTree, applyFilter, visibleNodes, isWithin, SORTS } from '../list/model.js';
+import { buildTree, applyFilter, visibleNodes, isWithin } from '../list/model.js';
+import { normalizeSort, sortButton } from '../list/sort.js';
 import { boxesView } from '../list/boxes.js';
 import { openNewList } from '../newlist.js';
 
@@ -47,12 +52,13 @@ export async function mount(ctx) {
     visible: [],          // the nodes that are drawn, in reading order
     selected: null,       // an entry's id
     collapsed: new Set(prefs.get(`collapsed.${id}`, [])), // item ids of the containers that are closed
-    sort: SORTS.some((s) => s.key === prefs.get('list.sort')) ? prefs.get('list.sort') : 'name',
+    sort: normalizeSort(prefs.get('list.sort')), // [{key, dir}] in order; empty = by name (list/sort.js)
     words: [],
     statusFilter: new Set(),
     filtering: false,
     matches: 0,
-    adding: null,         // {container: item id | null} while the add-entry row is open
+    adding: null,         // {container: item id | null, compartment: id | null} while the add-entry row is open
+    showMeta: prefs.get('list.meta', true) !== false, // each entry's category and storage location are shown
   };
   ctx.setTitle(st.list.name);
 
@@ -65,7 +71,9 @@ export async function mount(ctx) {
     st.filtering = st.words.length > 0 || st.statusFilter.size > 0;
     st.matches = applyFilter(st.tree, { words: st.words, statuses: st.statusFilter });
     st.visible = visibleNodes(st.tree, st.collapsed, st.filtering);
+    // The add-entry row needs its place to still be there.
     if (st.adding && st.adding.container != null && !st.tree.holder.has(st.adding.container)) st.adding = null;
+    if (st.adding && st.adding.compartment != null && ref.by.compartments.get(st.adding.compartment)?.item_id !== st.adding.container) st.adding.compartment = null;
     reselect(before);
   }
 
@@ -111,7 +119,9 @@ export async function mount(ctx) {
 
   const legend = el('div', { class: 'legend-row', role: 'group', 'aria-label': 'Statuses' });
   const viewHolder = el('div', { class: 'list-view' });
-  ctx.main.append(viewHolder);
+  // The heading of the printed page (on screen the title bar says all this).
+  const printTitle = el('div', { class: 'print-only print-title' });
+  ctx.main.append(printTitle, viewHolder);
 
   let theView; // made below, once `act` exists
   const view = () => theView;
@@ -244,11 +254,11 @@ export async function mount(ctx) {
       return true;
     },
 
-    /** Open the add-entry row inside a container (an item id), or at the top level (null). */
-    startAdd(container = null) {
+    /** Open the add-entry row at the top level (no arguments), inside a container (an item id), or in one of its compartments. */
+    startAdd(container = null, compartment = null) {
       if (!statuses().length) { toast('There are no statuses yet: add one under Settings first.'); return; }
       if (container != null && st.collapsed.delete(container)) saveCollapsed();
-      st.adding = { container };
+      st.adding = { container, compartment: container == null ? null : compartment };
       render();
       view().focusDraft();
     },
@@ -270,12 +280,16 @@ export async function mount(ctx) {
       return row;
     },
 
-    /** Move an entry into a container (an item id) or to the top level (null); what is inside it follows. */
-    async move(rowId, container) {
+    /**
+     * Move an entry into a container (an item id) or to the top level (null),
+     * and into one of that container's compartments (or none); what is inside
+     * the entry follows.
+     */
+    async move(rowId, container, compartment = null) {
       const row = rowById(rowId);
       if (!row) return;
       try {
-        Object.assign(row, await enqueue(() => api.updateContent(rowId, { container_id: container })));
+        Object.assign(row, await enqueue(() => api.updateContent(rowId, { container_id: container, compartment_id: compartment })));
       } catch (e) {
         toast(sentence(e.message));
         return;
@@ -286,21 +300,52 @@ export async function mount(ctx) {
       view().showSelection(true);
     },
 
-    /** Offer the places an entry can move to. */
+    /**
+     * Can an entry go to this place: a container (an item id; null = the top
+     * level) and one of its compartments (or none)? Not where it already is,
+     * not into itself or anything inside it, and not where the same item
+     * already is (an item is in a container once, whatever the compartment).
+     */
+    canMove(node, container, compartment = null) {
+      const here = node.row.container_id ?? null;
+      if (container === here && compartment === (node.compartment ?? null)) return false;
+      if (container == null) { if (compartment != null) return false; }
+      else {
+        const target = st.tree.holder.get(container);
+        if (!target || isWithin(target, node)) return false;
+        if (compartment != null && ref.by.compartments.get(compartment)?.item_id !== container) return false;
+      }
+      return container === here || !st.rows.some((r) => r.id !== node.id && r.item_id === node.row.item_id && (r.container_id ?? null) === container);
+    },
+
+    /** Offer the places an entry can move to: the top level, every container it can go into, and their compartments. */
     openMoveMenu(anchor, node) {
       const here = node.row.container_id ?? null;
+      const inCompartment = node.compartment;
+      // The same item cannot be in one container twice (whatever the compartment), nor twice at the top level.
       const taken = (container) => st.rows.some((r) => r.id !== node.id && r.item_id === node.row.item_id && (r.container_id ?? null) === container);
       const items = [];
-      if (here != null && !taken(null)) items.push({ label: 'Top level', depth: 0, to: null });
+      if (here != null && !taken(null)) items.push({ label: 'Top level', depth: 0, to: null, compartment: null });
       for (const c of st.tree.containers) {
-        if (c.row.item_id === here || isWithin(c, node) || taken(c.row.item_id)) continue;
-        items.push({ label: c.name, depth: c.depth + 1, to: c.row.item_id });
+        if (isWithin(c, node)) continue; // not into itself, nor into anything inside it
+        const itemId = c.row.item_id;
+        const isHere = itemId === here;
+        if (!isHere && taken(itemId)) continue;
+        const compartments = compartmentsOf(itemId).filter((k) => !(isHere && k.id === inCompartment));
+        // Where it already is: only its other compartments (and out of the one it is in) are places to go.
+        if (isHere && !compartments.length && inCompartment == null) continue;
+        items.push({ label: c.name, depth: c.depth + 1, to: itemId, compartment: null, box: true, disabled: isHere && inCompartment == null,
+          title: isHere ? (inCompartment == null ? 'It is in this container (in no compartment)' : 'Out of its compartment: in the container, in no compartment') : null });
+        for (const k of compartments) items.push({ label: k.name, depth: c.depth + 2, to: itemId, compartment: k.id });
       }
       const close = popover(anchor, el('div', { class: 'menu move-menu', role: 'menu', 'aria-label': `Move ${node.name} to` },
         el('div', { class: 'combo-group' }, `Move “${node.name}” to`),
         items.length
-          ? items.map((it) => el('button', { type: 'button', role: 'menuitem', style: { paddingLeft: `${12 + it.depth * 14}px` }, onClick: () => { close(); act.move(node.id, it.to); } },
-            it.to == null ? null : icon('box', { size: 13 }), it.label))
+          ? items.map((it) => el('button', {
+            type: 'button', role: 'menuitem', class: it.compartment != null ? 'to-compartment' : null, disabled: it.disabled, title: it.title,
+            style: { paddingLeft: `${12 + it.depth * 14}px` }, dataset: { container: it.to ?? '', compartment: it.compartment ?? '' },
+            onClick: () => { close(); act.move(node.id, it.to, it.compartment); },
+          }, it.box ? icon('box', { size: 13 }) : null, it.label))
           : el('div', { class: 'combo-empty' }, 'There is nowhere else to put it: add a container to the list first.')), { flush: true, align: 'right' });
     },
 
@@ -341,9 +386,9 @@ export async function mount(ctx) {
         });
         return;
       }
-      const { item_id, container_id, quantity, unit, status_id, notes } = node.row;
+      const { item_id, container_id, compartment_id, quantity, unit, status_id, notes } = node.row;
       if (await drop(false)) {
-        toast(`Removed “${node.name}”.`, { info: true, ms: 7000, action: { label: 'Undo', onClick: () => act.add({ item_id, container_id, quantity, unit, status_id, notes }) } });
+        toast(`Removed “${node.name}”.`, { info: true, ms: 7000, action: { label: 'Undo', onClick: () => act.add({ item_id, container_id, compartment_id, quantity, unit, status_id, notes }) } });
       }
     },
 
@@ -364,11 +409,11 @@ export async function mount(ctx) {
   const templateChip = el('span', { class: 'chip template-chip', title: 'This list is a template: a list meant to be copied from' }, 'Template');
   const expandBtn = el('button', { type: 'button', id: 'btn-expand-all', 'aria-label': 'Expand all', title: 'Open every container', onClick: () => act.expandAll() }, icon('expand-all'));
   const collapseBtn = el('button', { type: 'button', id: 'btn-collapse-all', 'aria-label': 'Collapse all', title: 'Close every container', onClick: () => act.collapseAll() }, icon('collapse-all'));
-  const addBtn = el('button', { type: 'button', class: 'primary', id: 'btn-add-item', title: 'Add an item to the list: inside the selected container, or beside the selected entry', onClick: () => {
-    const sel = st.selected != null ? st.tree.nodes.get(st.selected) : null;
-    const into = !sel ? null : sel.item?.is_container ? sel.row.item_id : (sel.row.container_id ?? null);
-    act.startAdd(into);
-  } }, icon('plus', { size: 14 }), 'Add item');
+  // "Add item" adds at the top level of the list. (Into a container: the box button on its heading; into a
+  // compartment: the + beside its name.)
+  const addBtn = el('button', { type: 'button', class: 'primary', id: 'btn-add-item',
+    title: 'Add an item at the top level of the list. To add inside a container, use the box button on its heading.',
+    onClick: () => act.startAdd(null) }, icon('plus', { size: 14 }), 'Add item');
 
   const filterBox = el('input', { type: 'search', class: 'filter-box', placeholder: 'Filter entries…', 'aria-label': 'Filter entries' });
   filterBox.addEventListener('input', () => { st.words = fold(filterBox.value).split(/\s+/).filter(Boolean); render(); });
@@ -380,34 +425,41 @@ export async function mount(ctx) {
     options: () => statuses().map((s) => ({ value: s.id, label: s.name, color: s.color })),
     onChange: (sel) => { st.statusFilter = sel; render(); },
   });
-  function sortBy(key) {
-    st.sort = key;
-    prefs.set('list.sort', key);
-    render();
-    view().showSelection(true);
-  }
+  // The Sort menu (list/sort.js): several columns, in order.
+  const sorter = sortButton({
+    get: () => st.sort,
+    set: (sort) => { st.sort = sort; prefs.set('list.sort', sort); render(); view().showSelection(true); },
+  });
 
-  // The ⋯ menu reads its items when it opens, so their wording can follow the state: the template
-  // flag, and which sort order is the current one.
+  // The ⋯ menu reads its items when it opens, so their wording can follow the state (the template flag, what is shown).
   const templateItem = { label: '', onClick: toggleTemplate };
+  const metaItem = { label: '', onClick: () => { st.showMeta = !st.showMeta; prefs.set('list.meta', st.showMeta); render(); } };
   const menu = menuButton(icon('more'), [
-    ...SORTS.map((s) => ({ get label() { return `${st.sort === s.key ? '✓' : '\u2003'} Sort by ${s.label.toLowerCase()}`; }, onClick: () => sortBy(s.key) })),
+    metaItem,
+    { label: 'Print…', onClick: () => window.print() },
     { label: 'Rename…', onClick: renameList },
     templateItem,
     { label: 'Give every entry a status…', onClick: setAllStatuses },
     { label: 'New list from this one…', onClick: () => openNewList({ lists, sources: [st.list.id], name: st.list.is_template ? '' : `Copy of ${st.list.name}`, onCreated: (l) => ctx.navigate(`#/list?id=${l.id}`) }) },
     { label: 'Delete this list…', onClick: deleteList },
-  ], { id: 'btn-list-menu', 'aria-label': 'List actions', title: 'Sort, rename, template, copy, delete…' });
+  ], { id: 'btn-list-menu', 'aria-label': 'List actions', title: 'Show or hide details, print, rename, template, copy, delete…' });
 
   ctx.toolbar.append(
     switcher, templateChip,
     el('div', { class: 'group', role: 'group', 'aria-label': 'Containers' }, expandBtn, collapseBtn),
-    addBtn, filterBox, statusFilter.el, legend,
+    addBtn, filterBox, statusFilter.el, sorter.el, legend,
     el('span', { class: 'spacer' }), menu);
 
   function syncToolbar() {
     templateChip.hidden = !st.list.is_template;
     templateItem.label = st.list.is_template ? 'Stop being a template' : 'Make it a template';
+    metaItem.label = st.showMeta ? 'Hide category and storage location' : 'Show category and storage location';
+    printTitle.replaceChildren(
+      el('h1', {}, st.list.name, st.list.is_template ? el('span', { class: 'print-sub' }, ' (template)') : null),
+      el('p', { class: 'print-sub' }, [
+        st.filtering ? `${st.matches} of ${plural(st.rows.length, 'entry', 'entries')} (filtered)` : plural(st.rows.length, 'entry', 'entries'),
+        new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }),
+      ].join(' · ')));
     const anyOpenable = st.tree.containers.some((n) => n.children.length);
     expandBtn.disabled = !anyOpenable || st.filtering;
     collapseBtn.disabled = !anyOpenable || st.filtering;
@@ -482,6 +534,17 @@ export async function mount(ctx) {
   const onPointer = (e) => { clicked = e.target.closest ? e.target.closest('button, a') : null; };
   document.addEventListener('pointerdown', onPointer, true);
 
+  // A click on empty space (the page around and between the boxes, a box's
+  // own margins) selects nothing. Clicks on an entry select it (list/boxes.js);
+  // clicks on controls, in the title bar, or in a menu or dialog are not "empty space".
+  const onEmptyClick = (e) => {
+    const t = e.target;
+    if (!t.closest || st.selected == null) return;
+    if (t.closest('.row.entry, button, a, input, select, textarea, label, .popover, .modal-backdrop, .topbar, #toast')) return;
+    act.select(null);
+  };
+  document.addEventListener('click', onEmptyClick);
+
   function onKey(e) {
     if (e.key === 'Tab') { clicked = null; return; }
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
@@ -542,6 +605,7 @@ export async function mount(ctx) {
   return () => {
     document.removeEventListener('keydown', onKey);
     document.removeEventListener('pointerdown', onPointer, true);
+    document.removeEventListener('click', onEmptyClick);
     document.removeEventListener('visibilitychange', refresh);
     window.removeEventListener('focus', refresh);
     legendFit.disconnect();

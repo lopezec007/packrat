@@ -15,7 +15,10 @@
 #      of the same name (the service logs in over the local socket by peer
 #      authentication, so there is no database password);
 #   3. installs the binary, the systemd unit and /etc/packrat/packrat.env;
-#   4. starts the service, which creates or upgrades the schema itself.
+#   4. starts the service, which creates or upgrades the schema itself. Before
+#      an upgrade changes the schema of a database that is in use, the service
+#      dumps the database into /var/lib/packrat/backups (and leaves it alone
+#      if it cannot).
 #
 # Idempotent: re-running upgrades the binary and unit and restarts the
 # service; /etc/packrat/packrat.env and the database are left untouched.
@@ -177,4 +180,7 @@ echo "  URL:       http://$host:$port/"
 echo "  Config:    $ENV_DST   (edit, then: systemctl restart packrat)"
 echo "  Database:  PostgreSQL database \"$DB_NAME\"   (sudo -u postgres psql $DB_NAME)"
 echo "  Backup:    sudo -u postgres pg_dump -Fc $DB_NAME > packrat-\$(date +%F).dump"
+echo "             (taken automatically before each schema upgrade, into /var/lib/packrat/backups)"
+latest=$(ls -1t /var/lib/packrat/backups/*.dump 2>/dev/null | head -n1 || true)
+if [[ -n "$latest" ]]; then echo "             latest: $latest"; fi
 echo "  Logs:      journalctl -u packrat -f"

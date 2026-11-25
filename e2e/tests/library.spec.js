@@ -147,3 +147,49 @@ test('a status is added with a colour and a key, and the key then works on a lis
   await done;
   expect((await pack.fetch(list.id)).entry('Sun Hat').status).toBe(name);
 });
+
+test('Enter saves a new item and opens the next one, with the same category and place', async ({ page, pack }) => {
+  const a = `Tarp ${uid()}`, b = `Tarp pegs ${uid()}`, c = `Tarp line ${uid()}`;
+  await page.goto('/#/library');
+  await page.locator('#btn-add').click();
+  await field(draft(page), 'name').fill(a);
+  await field(draft(page), 'item_category_id').selectOption({ label: 'Camp' });
+  await field(draft(page), 'storage_location_id').selectOption({ label: 'Garage Shelf B' });
+  let done = refSaved(page, 'POST');
+  await field(draft(page), 'name').press('Enter');
+  await done;
+  await pack.track('items', a);
+  // The item is in the table, and a new row is waiting with the cursor in its name.
+  await expect(refRow(page, a)).toBeVisible();
+  await expect(draft(page)).toHaveCount(1);
+  await expect(field(draft(page), 'name')).toBeFocused();
+  await expect(field(draft(page), 'name')).toHaveValue('');
+  await expect(field(draft(page), 'item_category_id').locator('option:checked')).toHaveText('Camp');
+  await expect(field(draft(page), 'storage_location_id').locator('option:checked')).toHaveText('Garage Shelf B');
+  await expect(field(draft(page), 'is_container')).not.toBeChecked();
+  // So the next one is just its name and Enter.
+  done = refSaved(page, 'POST');
+  await page.keyboard.type(b);
+  await page.keyboard.press('Enter');
+  await done;
+  await pack.track('items', b);
+  await expect(draft(page)).toHaveCount(1);
+  await expect(field(draft(page), 'name')).toBeFocused();
+  // Escape on the waiting row ends the run.
+  await page.keyboard.press('Escape');
+  await expect(draft(page)).toHaveCount(0);
+  const items = await (await page.request.get('/api/ref/items')).json();
+  const camp = pack.ref.item_categories.find((x) => x.name === 'Camp').id, shelf = pack.ref.storage_locations.find((x) => x.name === 'Garage Shelf B').id;
+  for (const name of [a, b]) expect(items.find((i) => i.name === name)).toMatchObject({ item_category_id: camp, storage_location_id: shelf });
+  // The tick button saves just the one.
+  await page.locator('#btn-add').click();
+  await field(draft(page), 'name').fill(c);
+  await field(draft(page), 'item_category_id').selectOption({ label: 'Camp' });
+  await field(draft(page), 'storage_location_id').selectOption({ label: 'Hall Closet' });
+  done = refSaved(page, 'POST');
+  await draft(page).locator('button.save').click();
+  await done;
+  await pack.track('items', c);
+  await expect(refRow(page, c)).toBeVisible();
+  await expect(draft(page)).toHaveCount(0);
+});

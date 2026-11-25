@@ -14,12 +14,13 @@ package store
 
 // Entry is one List_Contents row without its own ID and list.
 type Entry struct {
-	ContainerID *int64
-	ItemID      int64
-	Quantity    int64
-	Unit        *string
-	StatusID    int64
-	Notes       *string
+	ContainerID   *int64
+	CompartmentID *int64 // a compartment of ContainerID's item, or nil
+	ItemID        int64
+	Quantity      int64
+	Unit          *string
+	StatusID      int64
+	Notes         *string
 }
 
 // Source is one of the lists a new list is made from.
@@ -49,8 +50,8 @@ func sameUnit(a, b *string) bool {
 // list: every placement (an item in a container) found on any source.
 //
 //   - The same placement on several lists is one row, with the largest of
-//     their quantities (when they count in the same unit) and the unit,
-//     status and notes of the first list that has it.
+//     their quantities (when they count in the same unit) and the
+//     compartment, unit, status and notes of the first list that has it.
 //   - A container can only be in one place on a list, so it goes where the
 //     first list that has it puts it; what later lists pack into it follows it
 //     there.
@@ -139,7 +140,7 @@ func sound(rows []Entry) []Entry {
 				_, present := parent[c]
 				top, circle := walk(parent, rows[i])
 				if !present || circle || (hanging && !top) {
-					rows[i].ContainerID = nil
+					rows[i].ContainerID, rows[i].CompartmentID = nil, nil // a compartment is part of its container
 					changed = true
 					break
 				}
@@ -153,6 +154,9 @@ func sound(rows []Entry) []Entry {
 	seen := map[place]bool{}
 	out := rows[:0]
 	for _, r := range rows {
+		if r.ContainerID == nil {
+			r.CompartmentID = nil // a compartment is part of a container
+		}
 		p := place{containerOf(r), r.ItemID}
 		if seen[p] {
 			continue

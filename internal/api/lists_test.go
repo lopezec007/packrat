@@ -9,12 +9,15 @@ import (
 )
 
 // listAPI is the API over a database with a small library, made through
-// the API itself: three containers and three things that are not.
+// the API itself: three containers and three things that are not. The bag
+// has two compartments (a lid and a pocket) and the car one (a boot).
 type listAPI struct {
 	*env
 	car, bag, kit      float64 // containers
 	socks, comb, towel float64
+	lid, pocket, boot  float64 // compartments
 	itemName           map[float64]string
+	compartmentName    map[float64]string
 }
 
 // The seeded statuses.
@@ -26,7 +29,7 @@ const (
 
 func newListAPI(t *testing.T) *listAPI {
 	t.Helper()
-	a := &listAPI{env: newEnv(t), itemName: map[float64]string{}}
+	a := &listAPI{env: newEnv(t), itemName: map[float64]string{}, compartmentName: map[float64]string{}}
 	cat := a.obj(http.StatusCreated, "POST", "/api/ref/item_categories", jmap{"name": "Gear"})["id"]
 	loc := a.obj(http.StatusCreated, "POST", "/api/ref/storage_locations", jmap{"name": "Garage"})["id"]
 	item := func(name string, container bool) float64 {
@@ -39,6 +42,13 @@ func newListAPI(t *testing.T) *listAPI {
 	}
 	a.car, a.bag, a.kit = item("car", true), item("bag", true), item("kit", true)
 	a.socks, a.comb, a.towel = item("socks", false), item("comb", false), item("towel", false)
+	compartment := func(container float64, name string) float64 {
+		t.Helper()
+		id := a.obj(http.StatusCreated, "POST", "/api/ref/compartments", jmap{"item_id": container, "name": name})["id"].(float64)
+		a.compartmentName[id] = name
+		return id
+	}
+	a.lid, a.pocket, a.boot = compartment(a.bag, "lid"), compartment(a.bag, "pocket"), compartment(a.car, "boot")
 	return a
 }
 
@@ -62,7 +72,8 @@ func (a *listAPI) add(list, item, container float64, extra jmap) float64 {
 	return a.obj(http.StatusCreated, "POST", fmt.Sprintf("/api/lists/%v/contents", list), body)["id"].(float64)
 }
 
-// places lists a list's rows in order as "socks in bag" ("bag" at the top level).
+// places lists a list's rows in order as "socks in bag", or "socks in
+// bag/lid" when in a compartment ("bag" at the top level).
 func (a *listAPI) places(list float64) []string {
 	a.t.Helper()
 	out := []string{}
@@ -71,6 +82,9 @@ func (a *listAPI) places(list float64) []string {
 		s := a.itemName[row["item_id"].(float64)]
 		if c, ok := row["container_id"].(float64); ok {
 			s += " in " + a.itemName[c]
+		}
+		if c, ok := row["compartment_id"].(float64); ok {
+			s += "/" + a.compartmentName[c]
 		}
 		out = append(out, s)
 	}
@@ -108,13 +122,13 @@ func TestListsAPIShapes(t *testing.T) {
 
 	// A row with nothing optional, and one with everything.
 	bare := a.obj(http.StatusCreated, "POST", "/api/lists/1/contents", jmap{"item_id": a.bag})
-	wantBare := jmap{"id": 1.0, "list_id": 1.0, "container_id": nil, "item_id": a.bag, "quantity": 1.0, "unit": nil, "status_id": stored, "notes": nil}
+	wantBare := jmap{"id": 1.0, "list_id": 1.0, "container_id": nil, "compartment_id": nil, "item_id": a.bag, "quantity": 1.0, "unit": nil, "status_id": stored, "notes": nil}
 	if !reflect.DeepEqual(bare, wantBare) {
 		t.Fatalf("POST a bare row:\n got  %v\n want %v", bare, wantBare)
 	}
 	full := a.obj(http.StatusCreated, "POST", "/api/lists/1/contents",
-		jmap{"item_id": a.socks, "container_id": a.bag, "quantity": 3, "unit": " pairs ", "status_id": packed, "notes": "wool"})
-	wantFull := jmap{"id": 2.0, "list_id": 1.0, "container_id": a.bag, "item_id": a.socks, "quantity": 3.0, "unit": "pairs", "status_id": packed, "notes": "wool"}
+		jmap{"item_id": a.socks, "container_id": a.bag, "compartment_id": a.lid, "quantity": 3, "unit": " pairs ", "status_id": packed, "notes": "wool"})
+	wantFull := jmap{"id": 2.0, "list_id": 1.0, "container_id": a.bag, "compartment_id": a.lid, "item_id": a.socks, "quantity": 3.0, "unit": "pairs", "status_id": packed, "notes": "wool"}
 	if !reflect.DeepEqual(full, wantFull) {
 		t.Fatalf("POST a full row:\n got  %v\n want %v", full, wantFull)
 	}
@@ -388,7 +402,7 @@ func TestContentsAPIPatch(t *testing.T) {
 	}
 
 	// Partial: a key that is absent is left alone.
-	want := jmap{"id": socks, "list_id": trip, "container_id": a.bag, "item_id": a.socks, "quantity": 2.0, "unit": "pairs", "status_id": packed, "notes": "wool"}
+	want := jmap{"id": socks, "list_id": trip, "container_id": a.bag, "compartment_id": nil, "item_id": a.socks, "quantity": 2.0, "unit": "pairs", "status_id": packed, "notes": "wool"}
 	patch("nothing", jmap{}, want)
 	want["quantity"] = 7.0
 	patch("quantity", jmap{"quantity": 7}, want)

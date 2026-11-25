@@ -24,14 +24,17 @@ type List struct {
 
 // Content is one List_Contents row.
 type Content struct {
-	ID          int64   `json:"id"`
-	ListID      int64   `json:"list_id"`
-	ContainerID *int64  `json:"container_id"` // the item this row is inside; null = top level
-	ItemID      int64   `json:"item_id"`
-	Quantity    int64   `json:"quantity"`
-	Unit        *string `json:"unit"`
-	StatusID    int64   `json:"status_id"`
-	Notes       *string `json:"notes"`
+	ID          int64  `json:"id"`
+	ListID      int64  `json:"list_id"`
+	ContainerID *int64 `json:"container_id"` // the item this row is inside; null = top level
+	// CompartmentID is the compartment of that container the row is in; null
+	// = in the container, in no particular compartment.
+	CompartmentID *int64  `json:"compartment_id"`
+	ItemID        int64   `json:"item_id"`
+	Quantity      int64   `json:"quantity"`
+	Unit          *string `json:"unit"`
+	StatusID      int64   `json:"status_id"`
+	Notes         *string `json:"notes"`
 }
 
 // ListDetail is a list with everything on it.
@@ -40,11 +43,11 @@ type ListDetail struct {
 	Contents []Content `json:"contents"`
 }
 
-const contentCols = `ID, List_ID, Container_ID, Item_ID, Quantity, Unit, Status_ID, Notes`
+const contentCols = `ID, List_ID, Container_ID, Compartment_ID, Item_ID, Quantity, Unit, Status_ID, Notes`
 
 func scanContent(row pgx.Row) (Content, error) {
 	var c Content
-	err := row.Scan(&c.ID, &c.ListID, &c.ContainerID, &c.ItemID, &c.Quantity, &c.Unit, &c.StatusID, &c.Notes)
+	err := row.Scan(&c.ID, &c.ListID, &c.ContainerID, &c.CompartmentID, &c.ItemID, &c.Quantity, &c.Unit, &c.StatusID, &c.Notes)
 	return c, err
 }
 
@@ -178,7 +181,7 @@ func loadSources(ctx context.Context, q querier, ids []int64) ([]Source, map[int
 			return nil, nil, err
 		}
 		for _, c := range contents {
-			src.Rows = append(src.Rows, Entry{ContainerID: c.ContainerID, ItemID: c.ItemID, Quantity: c.Quantity, Unit: c.Unit, StatusID: c.StatusID, Notes: c.Notes})
+			src.Rows = append(src.Rows, Entry{ContainerID: c.ContainerID, CompartmentID: c.CompartmentID, ItemID: c.ItemID, Quantity: c.Quantity, Unit: c.Unit, StatusID: c.StatusID, Notes: c.Notes})
 		}
 		sources = append(sources, src)
 	}
@@ -249,10 +252,10 @@ func (s *Store) CreateList(ctx context.Context, n NewList) (*ListDetail, error) 
 		if len(entries) > 0 {
 			rows := make([][]any, len(entries))
 			for i, e := range entries {
-				rows[i] = []any{id, e.ContainerID, e.ItemID, e.Quantity, e.Unit, e.StatusID, e.Notes}
+				rows[i] = []any{id, e.ContainerID, e.CompartmentID, e.ItemID, e.Quantity, e.Unit, e.StatusID, e.Notes}
 			}
 			if _, err := tx.CopyFrom(ctx, pgx.Identifier{"list_contents"},
-				[]string{"list_id", "container_id", "item_id", "quantity", "unit", "status_id", "notes"}, pgx.CopyFromRows(rows)); err != nil {
+				[]string{"list_id", "container_id", "compartment_id", "item_id", "quantity", "unit", "status_id", "notes"}, pgx.CopyFromRows(rows)); err != nil {
 				return err
 			}
 		}

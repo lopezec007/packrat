@@ -9,8 +9,8 @@ package api
 //	PATCH  /api/lists/{id}               {name, is_template}; returns the list with its contents
 //	DELETE /api/lists/{id}               delete the list and everything on it
 //	POST   /api/lists/{id}/statuses      {status_id}: give every row that status; returns the list with its contents
-//	POST   /api/lists/{id}/contents      add an item: {item_id, container_id, quantity, unit, status_id, notes}; returns the row (201)
-//	PATCH  /api/contents/{id}            {container_id, quantity, unit, status_id, notes}; returns the row
+//	POST   /api/lists/{id}/contents      add an item: {item_id, container_id, compartment_id, quantity, unit, status_id, notes}; returns the row (201)
+//	PATCH  /api/contents/{id}            {container_id, compartment_id, quantity, unit, status_id, notes}; returns the row
 //	DELETE /api/contents/{id}            remove a row; ?contents=keep moves what is inside it up instead of removing it too
 
 import (

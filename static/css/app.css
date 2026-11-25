@@ -103,6 +103,7 @@ input::placeholder, textarea::placeholder { color: var(--fg-muted); }
 }
 .brand { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; letter-spacing: 0.01em; color: var(--fg); text-decoration: none; flex: 0 0 auto; }
 .brand svg { display: block; }
+.brand .brand-rat { margin: -1px -1px -1px -2px; }
 /* Page navigation: a joined group of buttons, the current page in accent. */
 .nav { display: flex; gap: 0; flex: 0 0 auto; }
 .nav a {
@@ -349,4 +350,28 @@ kbd, .key-cap {
   main { padding-left: 12px; padding-right: 12px; }
   main::before { margin-left: -12px; margin-right: -12px; }
   .modal-backdrop { padding: 12px; }
+}
+
+/* ---------- print ----------
+   Paper gets the page's content without its controls: no title bar, no
+   action buttons, the light theme whatever the screen's. What a page prints
+   beyond that is its own business (list.css has the list's). */
+.print-only { display: none; }
+@media print {
+  :root {
+    color-scheme: light;
+    --bg: #ffffff; --bg-alt: #f5f6f8; --bg-hover: #eef1f5; --fg: #1c1f24; --fg-muted: #555b66;
+    --border: #c9ced6; --border-strong: #8b949e; --accent: #2f6fdb; --accent-fg: #ffffff;
+    --header-bg: #eef1f5; --header-border: #9aa3ad; --header-shadow: none; --pop-shadow: none;
+  }
+  @page { margin: 9mm; }
+  body { background: #fff; font-size: 11px; }
+  .topbar, #toast, .popover, .modal-backdrop, main::before { display: none !important; }
+  main { padding: 0; }
+  .print-only { display: block; }
+  .row .actions, .settings-nav { display: none !important; }
+  .settings-layout { display: block; }
+  .row.header { position: static; }
+  .row { break-inside: avoid; }
+  .row:not(.header):hover { background: none !important; }
 }

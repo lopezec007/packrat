@@ -26,15 +26,21 @@ export const test = base.extend({
       if (!it) throw new Error(`no demo item named ${name}`);
       return it.id;
     };
+    /** A compartment of a (demo) container by name: compartmentId('Blue Backpack', 'Main'). */
+    const compartmentId = (item, name) => {
+      const c = ref.compartments.find((x) => x.item_id === itemId(item) && x.name === name);
+      if (!c) throw new Error(`${item} has no compartment named ${name}`);
+      return c.id;
+    };
     const statusId = (name) => {
       const s = ref.statuses.find((x) => x.name === name);
       if (!s) throw new Error(`no status named ${name}`);
       return s.id;
     };
     const api = {
-      ref, itemId, statusId,
+      ref, itemId, statusId, compartmentId,
       /**
-       * Make a list. entries: [[item, container | null, {quantity, unit, status, notes}], ...],
+       * Make a list. entries: [[item, container | null, {quantity, unit, status, notes, compartment}], ...],
        * containers before what goes inside them. Returns {id, name, row(item, container)}.
        */
       async list(prefix, entries = [], { template = false } = {}) {
@@ -47,6 +53,7 @@ export const test = base.extend({
         for (const [item, container, opts = {}] of entries) {
           const r = await request.post(`/api/lists/${list.id}/contents`, { data: {
             item_id: itemId(item), container_id: container ? itemId(container) : null,
+            compartment_id: opts.compartment ? compartmentId(container, opts.compartment) : null,
             quantity: opts.quantity ?? 1, unit: opts.unit ?? null, notes: opts.notes ?? null,
             status_id: opts.status ? statusId(opts.status) : undefined,
           } });
@@ -60,8 +67,9 @@ export const test = base.extend({
         const fresh = await (await request.get('/api/ref')).json();
         const names = new Map(fresh.items.map((i) => [i.id, i.name]));
         const statuses = new Map(fresh.statuses.map((s) => [s.id, s.name]));
+        const compartments = new Map(fresh.compartments.map((c) => [c.id, c.name]));
         const d = await (await request.get(`/api/lists/${listId}`)).json();
-        d.entries = d.contents.map((c) => ({ ...c, item: names.get(c.item_id), container: c.container_id == null ? null : names.get(c.container_id), status: statuses.get(c.status_id) }));
+        d.entries = d.contents.map((c) => ({ ...c, item: names.get(c.item_id), container: c.container_id == null ? null : names.get(c.container_id), compartment: c.compartment_id == null ? null : compartments.get(c.compartment_id), status: statuses.get(c.status_id) }));
         d.entry = (item, container) => d.entries.find((e) => e.item === item && (container === undefined || e.container === container));
         return d;
       },
@@ -90,7 +98,7 @@ export const test = base.extend({
     await use(api);
     for (const id of made.lists) await request.delete(`/api/lists/${id}`);
     // Items before the categories and locations they use.
-    const order = { items: 0, statuses: 1, item_categories: 2, storage_locations: 2 };
+    const order = { compartments: 0, items: 1, statuses: 2, item_categories: 3, storage_locations: 3 };
     for (const [table, id] of made.rows.sort((a, b) => order[a[0]] - order[b[0]])) await request.delete(`/api/ref/${table}/${id}`);
   },
 });
@@ -110,6 +118,8 @@ export const box = (page, name) => row(page, name).locator('xpath=..');
 export const rowNames = (page) => page.locator('.pack .row.entry:not(.new)').evaluateAll((els) => els.map((e) => e.dataset.name));
 /** The name of the selected entry ('' when nothing is selected). */
 export const selectedName = (page) => page.evaluate(() => document.querySelector('.pack .row.selected')?.dataset.name ?? '');
+/** A compartment's section inside its container's box, by the container's and the compartment's names. */
+export const compartment = (page, container, name) => box(page, container).locator(`:scope > .pk-body > .pk-boxes > .pk-comp[data-name="${name}"]`);
 /** Choose an entry of the list's ⋯ menu. */
 export async function listMenu(page, label) {
   await page.locator('#btn-list-menu').click();

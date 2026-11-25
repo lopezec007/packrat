@@ -12,11 +12,11 @@ func TestRefAPIListAll(t *testing.T) {
 	e := newEnv(t)
 	status, v, raw := e.call("GET", "/api/ref", nil)
 	all, _ := v.(jmap)
-	if status != http.StatusOK || !reflect.DeepEqual(jsonKeys(all), []string{"item_categories", "items", "statuses", "storage_locations"}) {
+	if status != http.StatusOK || !reflect.DeepEqual(jsonKeys(all), []string{"compartments", "item_categories", "items", "statuses", "storage_locations"}) {
 		t.Fatalf("GET /api/ref: %d %s", status, raw)
 	}
 	// Empty tables are empty arrays, not null.
-	for _, table := range []string{"item_categories", "storage_locations", "items"} {
+	for _, table := range []string{"item_categories", "storage_locations", "items", "compartments"} {
 		if !reflect.DeepEqual(all[table], []any{}) {
 			t.Errorf("%s: %v, want []", table, all[table])
 		}
@@ -24,11 +24,12 @@ func TestRefAPIListAll(t *testing.T) {
 			t.Errorf("GET /api/ref/%s: %d %s", table, status, raw)
 		}
 	}
-	// The seeded statuses, in the order of their IDs, colours with their "#".
+	// The seeded statuses, in the order of their IDs, colours with their "#",
+	// ranked from the worst (Missing) to the best (Packed).
 	want := []any{
-		jmap{"id": 1.0, "name": "In Storage Location", "color": "#8a94a3", "shortcut": "s", "use_count": 0.0},
-		jmap{"id": 2.0, "name": "Packed", "color": "#2e8540", "shortcut": "p", "use_count": 0.0},
-		jmap{"id": 3.0, "name": "Missing", "color": "#d62828", "shortcut": "m", "use_count": 0.0},
+		jmap{"id": 1.0, "name": "In Storage Location", "color": "#8a94a3", "shortcut": "s", "rank": 2.0, "use_count": 0.0},
+		jmap{"id": 2.0, "name": "Packed", "color": "#2e8540", "shortcut": "p", "rank": 3.0, "use_count": 0.0},
+		jmap{"id": 3.0, "name": "Missing", "color": "#d62828", "shortcut": "m", "rank": 1.0, "use_count": 0.0},
 	}
 	if !reflect.DeepEqual(all["statuses"], want) {
 		t.Fatalf("statuses:\n got  %v\n want %v", all["statuses"], want)
@@ -71,18 +72,18 @@ func TestRefAPICreateUpdateDelete(t *testing.T) {
 	// Statuses: the colour comes back as "#rrggbb", the shortcut in lower case.
 	for i, color := range []string{"#2E8540", "2e8540"} {
 		row := e.obj(http.StatusCreated, "POST", "/api/ref/statuses", jmap{"name": fmt.Sprint("Status ", i), "color": color, "shortcut": string(rune('X' + i))})
-		want := jmap{"id": float64(4 + i), "name": fmt.Sprint("Status ", i), "color": "#2e8540", "shortcut": string(rune('x' + i)), "use_count": 0.0}
+		want := jmap{"id": float64(4 + i), "name": fmt.Sprint("Status ", i), "color": "#2e8540", "shortcut": string(rune('x' + i)), "rank": float64(4 + i), "use_count": 0.0}
 		if !reflect.DeepEqual(row, want) {
 			t.Fatalf("POST status with colour %s: %v, want %v", color, row, want)
 		}
 	}
 	// PATCH is partial: only the colour changes.
 	row := e.obj(http.StatusOK, "PATCH", "/api/ref/statuses/4", jmap{"color": "AABBCC"})
-	if want := (jmap{"id": 4.0, "name": "Status 0", "color": "#aabbcc", "shortcut": "x", "use_count": 0.0}); !reflect.DeepEqual(row, want) {
+	if want := (jmap{"id": 4.0, "name": "Status 0", "color": "#aabbcc", "shortcut": "x", "rank": 4.0, "use_count": 0.0}); !reflect.DeepEqual(row, want) {
 		t.Fatalf("PATCH status colour: %v, want %v", row, want)
 	}
 	row = e.obj(http.StatusOK, "PATCH", "/api/ref/statuses/4", jmap{"shortcut": "Q", "name": "Queued"})
-	if want := (jmap{"id": 4.0, "name": "Queued", "color": "#aabbcc", "shortcut": "q", "use_count": 0.0}); !reflect.DeepEqual(row, want) {
+	if want := (jmap{"id": 4.0, "name": "Queued", "color": "#aabbcc", "shortcut": "q", "rank": 4.0, "use_count": 0.0}); !reflect.DeepEqual(row, want) {
 		t.Fatalf("PATCH status shortcut and name: %v, want %v", row, want)
 	}
 	e.gone("DELETE", "/api/ref/statuses/5")

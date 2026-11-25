@@ -1,5 +1,5 @@
-// Reference data shared by every page: the library (items, their categories
-// and storage locations) and the statuses, loaded once from GET /api/ref and
+// Reference data shared by every page: the library (items, their categories,
+// storage locations and compartments) and the statuses, loaded once from GET /api/ref and
 // kept current as pages create, change and delete rows.
 //
 //   ref.items                   -> array of rows (as the API returns them)
@@ -11,7 +11,7 @@
 import { api } from './api.js';
 import { byText } from './util.js';
 
-export const REF_TABLES = ['item_categories', 'storage_locations', 'statuses', 'items'];
+export const REF_TABLES = ['item_categories', 'storage_locations', 'statuses', 'items', 'compartments'];
 
 export const ref = { by: {} };
 for (const t of REF_TABLES) { ref[t] = []; ref.by[t] = new Map(); }
@@ -60,11 +60,23 @@ export const nameOf = (table, id) => (id == null ? '' : ref.by[table].get(id)?.n
 /** Sorted copy of a table by name. */
 export const sortedRows = (table) => [...ref[table]].sort((a, b) => byText(a.name, b.name));
 
-/** The statuses in the order they are offered everywhere: as created (by id). */
-export const statuses = () => [...ref.statuses].sort((a, b) => a.id - b.id);
+/** A container's compartments, in the order they were made (by id). */
+export const compartmentsOf = (itemId) => ref.compartments.filter((c) => c.item_id === itemId).sort((a, b) => a.id - b.id);
 
-/** The status a newly added entry starts with: the first one. */
-export const defaultStatus = () => statuses()[0] || null;
+/** The statuses in the order they are shown everywhere: by rank, from the worst to the best. */
+export const statuses = () => [...ref.statuses].sort((a, b) => a.rank - b.rank || a.id - b.id);
+
+/** The status a newly added entry starts with: the one that was made first (the lowest id). */
+export const defaultStatus = () => ref.statuses.reduce((first, s) => (!first || s.id < first.id ? s : first), null);
+
+/** A status's rank (1 = the worst); an unknown status ranks after them all. */
+export const statusRank = (id) => ref.by.statuses.get(id)?.rank ?? Infinity;
+
+/** Rank the statuses: ids lists every one of them, from the worst to the best. */
+export async function orderStatuses(ids) {
+  ref.statuses = await api.orderStatuses(ids);
+  index('statuses');
+}
 
 /** A status's colour ("#rrggbb"); grey for an unknown id. */
 export const statusColor = (id) => ref.by.statuses.get(id)?.color || '#9aa3ad';

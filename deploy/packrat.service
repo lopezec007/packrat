@@ -20,11 +20,18 @@ Group=packrat
 # user (peer authentication: no password anywhere).
 Environment=PACKRAT_ADDR=0.0.0.0:8082
 Environment=PACKRAT_DATABASE_URL=postgres:///packrat?host=/var/run/postgresql
+# Where the database is dumped before an upgrade changes its schema.
+Environment=PACKRAT_BACKUP_DIR=/var/lib/packrat/backups
 EnvironmentFile=-/etc/packrat/packrat.env
 
 ExecStart=/usr/local/bin/packrat
 
-# All data lives in PostgreSQL; the service itself writes nothing.
+# All data lives in PostgreSQL. The one thing the service writes to disk is
+# the dump it takes of the database before upgrading its schema, into
+# /var/lib/packrat (created and owned by the service user; StateDirectory
+# also makes it writable under ProtectSystem=strict below).
+StateDirectory=packrat
+StateDirectoryMode=0750
 WorkingDirectory=/
 UMask=0077
 
@@ -32,8 +39,8 @@ Restart=on-failure
 RestartSec=2s
 
 # Hardening. The service needs nothing beyond: listen on a TCP port, talk to
-# PostgreSQL over its Unix socket (or TCP, for a database elsewhere) and read
-# its own binary.
+# PostgreSQL over its Unix socket (or TCP, for a database elsewhere), read
+# its own binary, and run pg_dump into its state directory before an upgrade.
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true

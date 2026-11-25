@@ -33,6 +33,8 @@ export const api = {
   createRef: (table, body) => req('POST', `/api/ref/${table}`, body),
   updateRef: (table, id, body) => req('PATCH', `/api/ref/${table}/${id}`, body),
   deleteRef: (table, id) => req('DELETE', `/api/ref/${table}/${id}`),
+  /** Rank the statuses: ids lists every status, from the worst to the best. Returns the statuses. */
+  orderStatuses: (ids) => req('POST', '/api/statuses/order', { ids }),
 
   // Lists
   lists: () => req('GET', '/api/lists'),

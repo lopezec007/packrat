@@ -29,22 +29,23 @@ authentication (Packrat is meant for a trusted network; see the README).
 
 ## Version
 
-`GET /api/version` → `{"version": "0.1.0", "date": "2026-11-16", "build": "dev"}`
+`GET /api/version` → `{"version": "0.2.0", "date": "2026-11-24", "build": "dev"}`
 
 ## Library and settings tables
 
-Four tables share one set of routes; `{table}` is one of:
+Five tables share one set of routes; `{table}` is one of:
 
 | `{table}` | Fields | Computed (read-only) | Order |
 |---|---|---|---|
 | `item_categories` | `name` | `item_count`: items in the category | by name |
 | `storage_locations` | `name` | `item_count`: items stored there | by name |
-| `statuses` | `name`, `color`, `shortcut` | `use_count`: list entries with the status | by id |
+| `statuses` | `name`, `color`, `shortcut` | `rank`: its place from the worst (1) to the best; `use_count`: list entries with the status | by id |
 | `items` | `name`, `item_category_id`, `storage_location_id`, `is_container` (default `false`) | `list_count`: lists the item is on | by name |
+| `compartments` | `item_id` (set on create, fixed after), `name` | `use_count`: list entries in the compartment | by item, then id |
 
 | Route | |
 |---|---|
-| `GET /api/ref` | Every table at once: `{"item_categories": [...], "storage_locations": [...], "statuses": [...], "items": [...]}` |
+| `GET /api/ref` | Every table at once: `{"item_categories": [...], "storage_locations": [...], "statuses": [...], "items": [...], "compartments": [...]}` |
 | `GET /api/ref/{table}` | One table's rows. |
 | `POST /api/ref/{table}` | Create a row. |
 | `PATCH /api/ref/{table}/{id}` | Change a row. |
@@ -58,11 +59,23 @@ Rules:
   stored as six lower-case digits and always returned as `"#2e8540"`.
 - `shortcut`: exactly one visible character, stored in lower case, unique.
 - The first status (lowest `id`) is the default for new list entries.
+- Statuses are ranked from the worst to the best (`rank`, an order only: the
+  numbers may have gaps). A new status is ranked best. `rank` is read-only on
+  these routes (sent back, it is ignored); the ranking is set as a whole:
+
+  `POST /api/statuses/order` with `{"ids": [3, 1, 2]}`, every status id once,
+  the worst first, returns the statuses (as `GET /api/ref/statuses`). 400
+  when an id is unknown, repeated or left out.
 - `is_container` cannot be set to `false` while the item holds other items
   on any list, nor to `true` while the item is on some list more than once
   (409, naming the list).
 - A category or storage location with items, an item that is on a list, and
   a status that entries have cannot be deleted (409).
+- A compartment belongs to a container: `item_id` must be an item with
+  `is_container` (400 otherwise) and cannot be changed afterwards (400);
+  `name` is unique within the item (409). Deleting a compartment leaves the
+  entries that were in it in the container, in no compartment. Deleting an
+  item deletes its compartments.
 
 ```bash
 curl -s -X POST localhost:8082/api/ref/items -H 'Content-Type: application/json' \
@@ -104,8 +117,8 @@ A list:
   One source gives a copy of it. Several are combined into their union:
   every placement (an item in a container) on any source.
   - The same placement on several sources is one entry, with the largest
-    quantity when the units match and the unit, status and notes of the
-    first source that has it.
+    quantity when the units match and the compartment, unit, status and
+    notes of the first source that has it.
   - A container is placed where the first source that has it puts it; what
     later sources put inside it follows it there.
 - Statuses: an entry taken from a source that is a template keeps its
@@ -116,18 +129,20 @@ A list:
 An entry is one `List_Contents` row:
 
 ```json
-{"id": 33, "list_id": 3, "container_id": 2, "item_id": 20, "quantity": 2, "unit": null, "status_id": 2, "notes": null}
+{"id": 33, "list_id": 3, "container_id": 2, "compartment_id": null, "item_id": 20, "quantity": 2, "unit": null, "status_id": 2, "notes": null}
 ```
 
 `container_id` is the **item** the entry is inside (`null` = the top level of
-the list), not another entry's id.
+the list), not another entry's id. `compartment_id` is the compartment of
+that container the entry is in (`null` = in the container, in no
+compartment).
 
 | Route | |
 |---|---|
 | `POST /api/lists/{id}/contents` | Add an item to the list. |
 | `PATCH /api/contents/{id}` | Change an entry. |
 | `DELETE /api/contents/{id}` | Remove an entry and, when it is a container, everything inside it at every depth. |
-| `DELETE /api/contents/{id}?contents=keep` | Remove an entry but keep what was directly inside it, moved to where it was. 409 when one of those items is already there. |
+| `DELETE /api/contents/{id}?contents=keep` | Remove an entry but keep what was directly inside it, moved to where it was (and out of the removed container's compartments). 409 when one of those items is already there. |
 
 Fields:
 
@@ -135,6 +150,7 @@ Fields:
 |---|---|---|
 | `item_id` | required | Cannot be changed afterwards. |
 | `container_id` | default `null` | See the rules below. `PATCH` with `null` moves the entry to the top level. |
+| `compartment_id` | default `null` | Must be a compartment of the entry's container (400 otherwise; never at the top level). A `PATCH` that moves the entry to another container clears it unless it names one of the new container's compartments; on its own it changes or (with `null`) clears the compartment. |
 | `quantity` | default `1` | A whole number from 1 up. |
 | `unit` | default `null` | At most 127 characters; `""` and `null` both clear it. |
 | `status_id` | default: the first status | Must exist. |
@@ -146,7 +162,7 @@ What keeps a list a tree:
    same list (400 otherwise).
 2. A container item can be on a list only once (409 on a second placement).
    Other items can be on a list several times, but only once per container
-   (409: change the quantity instead).
+   (409: change the quantity instead), whatever the compartment.
 3. An entry cannot be moved into itself or into anything inside it (400).
    Moving a container takes its contents along: they refer to its item.
 

@@ -21,6 +21,11 @@ const PATHS = {
   // Show / hide what is inside every container (as the planner's expand-all and collapse-all).
   'expand-all': '<path d="M4 5.5l4-3.5 4 3.5M4 10.5l4 3.5 4-3.5"/>',
   'collapse-all': '<path d="M4 2l4 3.5 4-3.5M4 14l4-3.5 4 3.5"/>',
+  // The Sort menu: one arrow down, one up.
+  sort: '<path d="M4.5 2v12M2 11.5L4.5 14 7 11.5M11.5 14V2M9 4.5L11.5 2 14 4.5"/>',
+  // Rank a status worse / better (Settings).
+  'arrow-up': '<path d="M8 13V3.5M3.5 7.5L8 3l4.5 4.5"/>',
+  'arrow-down': '<path d="M8 3v9.5M3.5 8.5L8 13l4.5-4.5"/>',
   // Move a row into another container.
   move: '<path d="M2.5 5.5h9M9 2.5l3 3-3 3M13.5 10.5h-9M7 7.5l-3 3 3 3"/>',
   // Add something inside a container: a box with a plus.

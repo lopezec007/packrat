@@ -1,13 +1,15 @@
 package api
 
 // The library and settings tables (item categories, storage locations,
-// statuses, items): one generic set of routes over store.RefTables.
+// statuses, items, compartments): one generic set of routes over
+// store.RefTables.
 //
-//	GET    /api/ref                 every table: {"item_categories": [...], "storage_locations": [...], "statuses": [...], "items": [...]}
+//	GET    /api/ref                 every table: {"item_categories": [...], ..., "items": [...], "compartments": [...]}
 //	GET    /api/ref/{table}         one table's rows
 //	POST   /api/ref/{table}         create; body = the columns; returns the row (201)
 //	PATCH  /api/ref/{table}/{id}    partial update; returns the row
 //	DELETE /api/ref/{table}/{id}    delete (409 while the row is in use)
+//	POST   /api/statuses/order      {ids: [every status id, from the worst to the best]}: rank the statuses; returns them
 
 import (
 	"net/http"
@@ -22,7 +24,24 @@ func init() {
 		mux.HandleFunc("POST /api/ref/{table}", s.createRef)
 		mux.HandleFunc("PATCH /api/ref/{table}/{id}", s.updateRef)
 		mux.HandleFunc("DELETE /api/ref/{table}/{id}", s.deleteRef)
+		mux.HandleFunc("POST /api/statuses/order", s.orderStatuses)
 	})
+}
+
+func (s *Server) orderStatuses(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := decode(w, r, &body); err != nil {
+		writeErr(w, err)
+		return
+	}
+	rows, err := s.St.OrderStatuses(r.Context(), body.IDs)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
 }
 
 func refTable(r *http.Request) (*store.RefTable, error) {

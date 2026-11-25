@@ -221,3 +221,40 @@ test('leaving a page closes its dialogs, and a page still loading does not leak 
   await expect(page.locator('.pack')).toHaveCount(0);
   await expect(page).toHaveTitle(/Library/);
 });
+
+test('a click on empty space, or Escape at the top level, selects nothing', async ({ page, pack }) => {
+  const list = await pack.list('Empty', TRIP);
+  await openList(page, list);
+  await row(page, 'Comb').locator('.item-name').click();
+  expect(await selectedName(page)).toBe('Comb');
+  // Below everything on the page.
+  const view = page.viewportSize();
+  await page.mouse.click(view.width / 2, view.height - 10);
+  expect(await selectedName(page)).toBe('');
+  // With nothing selected a status key does nothing.
+  await page.keyboard.press('p');
+  await page.waitForTimeout(150);
+  expect((await pack.fetch(list.id)).entries.every((e) => e.status === 'In Storage Location')).toBe(true);
+  // The margin inside a box, beside its contents, is empty space too.
+  await row(page, 'Socks').locator('.item-name').click();
+  const body = await page.locator('.pk-box .pk-body').first().boundingBox();
+  await page.mouse.click(body.x + 3, body.y + body.height - 3);
+  expect(await selectedName(page)).toBe('');
+  // The title bar is not: its buttons act on the selection.
+  await row(page, 'Sun Hat').locator('.item-name').click();
+  await page.locator('#btn-expand-all').click();
+  expect(await selectedName(page)).toBe('Sun Hat');
+  const done = saved(page);
+  await page.locator('.legend-row .status-chip', { hasText: 'Packed' }).click();
+  await done;
+  expect(await selectedName(page)).toBe('Sun Hat');
+  expect((await pack.fetch(list.id)).entry('Sun Hat').status).toBe('Packed');
+  await page.locator('.topbar').click({ position: { x: 5, y: 5 } });
+  expect(await selectedName(page)).toBe('Sun Hat');
+  // Escape steps out a level at a time, and from the top level to nothing.
+  await row(page, 'Blue Backpack').locator('.item-name').click();
+  await page.keyboard.press('Escape');
+  expect(await selectedName(page)).toBe('Car');
+  await page.keyboard.press('Escape');
+  expect(await selectedName(page)).toBe('');
+});

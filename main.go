@@ -2,14 +2,18 @@
 //
 // Usage:
 //
-//	packrat [-addr :8082] [-db postgres:///packrat?host=/var/run/postgresql] [-static DIR]
+//	packrat [-addr :8082] [-db postgres:///packrat?host=/var/run/postgresql] [-backup-dir backups] [-static DIR]
 //	packrat -version
 //
 // The flags default to the environment variables PACKRAT_ADDR,
-// PACKRAT_DATABASE_URL and PACKRAT_STATIC_DIR.
+// PACKRAT_DATABASE_URL, PACKRAT_BACKUP_DIR and PACKRAT_STATIC_DIR.
 //
 // On start the schema is brought up to date from the migrations embedded in
-// the binary (internal/db/migrations).
+// the binary (internal/db/migrations). Before that changes a database that
+// is already in use, the database is dumped into the backup directory
+// (internal/db/backup.go); if the dump cannot be made, nothing is migrated
+// and the service does not start. -no-backup (PACKRAT_NO_BACKUP=1) skips the
+// dump, for when a backup has been taken some other way.
 package main
 
 import (
@@ -37,8 +41,8 @@ var staticFS embed.FS
 // Version is the semantic version of this release and VersionDate the day it
 // was cut. build is the git description, set via -ldflags "-X main.build=...".
 const (
-	Version     = "0.1.0"
-	VersionDate = "2026-11-16"
+	Version     = "0.2.0"
+	VersionDate = "2026-11-24"
 )
 
 var build = "dev"
@@ -53,6 +57,8 @@ func envOr(key, def string) string {
 func main() {
 	addr := flag.String("addr", envOr("PACKRAT_ADDR", ":8082"), "listen address")
 	dsn := flag.String("db", envOr("PACKRAT_DATABASE_URL", "postgres:///packrat?host=/var/run/postgresql"), "PostgreSQL connection URL")
+	backupDir := flag.String("backup-dir", envOr("PACKRAT_BACKUP_DIR", "backups"), "directory the database is dumped into before its schema is upgraded")
+	noBackup := flag.Bool("no-backup", envOr("PACKRAT_NO_BACKUP", "") != "", "upgrade the schema without dumping the database first (only when it has been backed up some other way)")
 	staticDir := flag.String("static", envOr("PACKRAT_STATIC_DIR", ""), "serve the UI from this directory instead of the copy built into the binary (for development)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
@@ -71,7 +77,19 @@ func main() {
 	}
 	defer pool.Close()
 
-	applied, err := db.Migrate(ctx, pool)
+	// A database that is in use is backed up before its schema is changed.
+	applied, err := db.MigrateWith(ctx, pool, func(ctx context.Context, from, to int) error {
+		if *noBackup {
+			log.Printf("upgrading the schema from version %d to %d WITHOUT a backup (-no-backup)", from, to)
+			return nil
+		}
+		path, err := db.Backup(ctx, *dsn, *backupDir, fmt.Sprintf("schema-%d-to-%d", from, to))
+		if err != nil {
+			return fmt.Errorf("the database could not be backed up, so it has not been touched: %w", err)
+		}
+		log.Printf("backed up the database to %s before upgrading its schema from version %d to %d", path, from, to)
+		return nil
+	})
 	if err != nil {
 		log.Fatalf("migrate database: %v", err)
 	}

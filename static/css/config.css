@@ -32,6 +32,27 @@
 .ref-table .row > .saved { animation: cell-saved 0.9s ease-out; }
 @media (prefers-reduced-motion: reduce) { .ref-table .row > .saved { animation: none; } }
 
+/* An item's compartments in the Items table: their names, as the button that
+   opens the editor (js/compartments.js). */
+.ref-table button.link {
+  max-width: 100%; padding: 1px 4px; margin-left: -4px; border: 1px solid transparent; border-radius: 4px; background: none;
+  color: var(--fg); font: inherit; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;
+}
+.ref-table button.link:hover { border-color: var(--border); background: var(--bg); }
+.ref-table button.link.none { color: var(--fg-muted); }
+.ref-table .row:not(:hover) button.link.none { opacity: 0; }
+.ref-table .row:not(:hover) button.link.none:focus-visible { opacity: 1; }
+.modal.compartments { width: min(480px, 100%); }
+.comp-list { display: flex; flex-direction: column; gap: 4px; }
+.comp-row { display: flex; align-items: center; gap: 8px; }
+.comp-row .comp-name { flex: 1 1 auto; min-width: 0; }
+.comp-row .comp-used { flex: 0 0 auto; font-size: 12px; white-space: nowrap; }
+.comp-row .comp-delete { flex: 0 0 auto; width: 26px; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.comp-none { margin: 0; }
+.comp-add-row { display: flex; gap: 8px; }
+.comp-add-row .comp-new { flex: 1 1 auto; min-width: 0; }
+.comp-add-row .comp-add { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; }
+
 /* A status's shortcut, edited as a key cap. */
 .ref-table .cell-input.key-input {
   width: 30px; padding: 1px 0; text-align: center; text-transform: uppercase; font-family: var(--mono); font-weight: 600;

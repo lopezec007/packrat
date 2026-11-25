@@ -10,7 +10,7 @@
 //
 // The files:
 //
-//	ref.go       the library and settings tables (categories, storage locations, statuses, items)
+//	ref.go       the library and settings tables (categories, storage locations, statuses, items, compartments)
 //	lists.go     lists: create (empty or from other lists), rename, delete
 //	contents.go  what is on a list: add, move, edit and remove rows, keeping the tree sound
 //	merge.go     how several lists are combined into a new one: their union (pure functions)
@@ -71,24 +71,28 @@ const (
 	pgNumericOutOfRange   = "22003"
 	pgInvalidText         = "22P02"
 	pgInvalidEncoding     = "22021" // text PostgreSQL cannot store: a NUL character
+	pgDeadlock            = "40P01" // two changes each waiting for the other: PostgreSQL stops one of them
 )
 
 // constraintMessages says, in words a person can act on, what breaking each
 // constraint means: a duplicate for the UN_ ones, a delete of a row in use
 // for the FK_ ones. (PostgreSQL reports constraint names in lower case.)
 var constraintMessages = map[string]string{
-	"un_lists":                      "there is already a list with that name",
-	"un_item_categories":            "there is already an item category with that name",
-	"un_storage_locations":          "there is already a storage location with that name",
-	"un_items":                      "there is already an item with that name (item names are unique across all categories)",
-	"un_statuses":                   "there is already a status with that name",
-	"un_statuses_shortcut":          "another status already uses that shortcut key",
-	"un_list_contents":              "that item is already in that place on the list",
-	"fk_items_item_category_id":     "this item category still has items in the library: move them to another category first",
-	"fk_items_storage_location_id":  "this storage location still has items in the library: move them to another location first",
-	"fk_list_contents_item_id":      "this item is on a list: take it off every list before deleting it",
-	"fk_list_contents_container_id": "this item holds other items on a list: take it off every list before deleting it",
-	"fk_list_contents_status_id":    "this status is in use on a list: give those entries another status first",
+	"un_lists":                        "there is already a list with that name",
+	"un_item_categories":              "there is already an item category with that name",
+	"un_storage_locations":            "there is already a storage location with that name",
+	"un_items":                        "there is already an item with that name (item names are unique across all categories)",
+	"un_statuses":                     "there is already a status with that name",
+	"un_statuses_shortcut":            "another status already uses that shortcut key",
+	"un_statuses_rank":                "the statuses were being reordered by someone else just now: try again",
+	"un_list_contents":                "that item is already in that place on the list",
+	"fk_items_item_category_id":       "this item category still has items in the library: move them to another category first",
+	"fk_items_storage_location_id":    "this storage location still has items in the library: move them to another location first",
+	"fk_list_contents_item_id":        "this item is on a list: take it off every list before deleting it",
+	"fk_list_contents_container_id":   "this item holds other items on a list: take it off every list before deleting it",
+	"fk_list_contents_status_id":      "this status is in use on a list: give those entries another status first",
+	"un_compartments":                 "that container already has a compartment with that name",
+	"fk_list_contents_compartment_id": "something was put in this compartment just now: try again",
 }
 
 // TranslateErr turns the PostgreSQL errors a caller can cause (duplicates,
@@ -104,6 +108,8 @@ func TranslateErr(err error, what string) error {
 		return Conflict("%s", msg)
 	}
 	switch pe.Code {
+	case pgDeadlock:
+		return Conflict("something else was changing the same %s just now: try again", what)
 	case pgUniqueViolation:
 		return Conflict("that %s already exists (%s)", what, pe.ConstraintName)
 	case pgForeignKeyViolation:

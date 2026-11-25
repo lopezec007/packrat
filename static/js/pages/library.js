@@ -10,7 +10,8 @@
 // are. URL parameter: section (a table name with dashes, e.g.
 // storage-locations).
 
-import { ref, reloadRef } from '../state.js';
+import { ref, reloadRef, compartmentsOf } from '../state.js';
+import { compartmentsDialog } from '../compartments.js';
 import { el, toast, plural } from '../util.js';
 import { icon } from '../icons.js';
 import { refTable } from '../refedit.js';
@@ -24,13 +25,27 @@ const count = (key, label, title, one, many) => ({
 const SECTIONS = [
   {
     table: 'items', title: 'Items', noun: 'item', label: (r) => r.name,
-    hint: 'Everything you own that might go on a list. An item belongs to one category and has one place it is stored when not in use; its name is unique across the whole library. Tick Container for anything other items can be packed inside (a car, a backpack, a toiletry kit): on a list, a container can hold items and other containers, as deep as you like.',
+    hint: 'Everything you own that might go on a list. An item belongs to one category and has one place it is stored when not in use; its name is unique across the whole library. Tick Container for anything other items can be packed inside (a car, a backpack, a toiletry kit): on a list, a container can hold items and other containers, as deep as you like, and can be given compartments to put them in. When adding items, Enter saves one and starts the next.',
     emptyText: 'The library is empty. Add the first item with the button above.',
     columns: [
       name({ width: 'minmax(180px, 1.4fr)' }),
-      { key: 'item_category_id', label: 'Category', kind: 'select', options: 'item_categories', required: true, create: { noun: 'category' } },
-      { key: 'storage_location_id', label: 'Stored in', kind: 'select', options: 'storage_locations', required: true, create: { noun: 'storage location' }, title: 'Where the item lives when it is not in use' },
+      // (carry: a run of new items, Enter after Enter, starts each with the last one's category and place.)
+      { key: 'item_category_id', label: 'Category', kind: 'select', options: 'item_categories', required: true, create: { noun: 'category' }, carry: true, width: 'minmax(130px, 0.9fr)' },
+      { key: 'storage_location_id', label: 'Stored in', kind: 'select', options: 'storage_locations', required: true, create: { noun: 'storage location' }, carry: true, title: 'Where the item lives when it is not in use', width: 'minmax(130px, 0.9fr)' },
       { key: 'is_container', label: 'Container', kind: 'check', title: 'Other items can be packed inside it', width: '92px' },
+      {
+        key: 'compartments', label: 'Compartments', kind: 'computed', width: 'minmax(140px, 1fr)',
+        title: 'The parts of a container that things can be packed into: a backpack’s lid pocket, a car’s boot',
+        render: (r) => {
+          if (!r.is_container) return el('span', { class: 'muted' }, '—');
+          const names = compartmentsOf(r.id).map((c) => c.name);
+          return el('button', {
+            type: 'button', class: `link compartments-btn${names.length ? '' : ' none'}`,
+            title: names.length ? `${names.join(', ')}: click to change them` : `Give ${r.name} compartments`, 'aria-label': `Compartments of ${r.name}`,
+            onClick: async () => { await compartmentsDialog(r); refreshTable(); },
+          }, names.length ? names.join(', ') : 'Add…');
+        },
+      },
       count('list_count', 'On lists', 'How many lists the item is on', 'list'),
     ],
   },
@@ -50,6 +65,9 @@ const SECTIONS = [
 
 const slug = (table) => table.replace(/_/g, '-');
 
+// The table on the page, for the cells that need to redraw it (set in mount).
+let refreshTable = () => {};
+
 export async function mount(ctx) {
   // The counts (lists per item, items per category) change as lists change.
   try { await reloadRef(); } catch (e) { toast(e.message); }
@@ -67,6 +85,7 @@ export async function mount(ctx) {
 
   // After any change: the counts beside the sections, and every row's choices (a category made from one row's list is offered in the others).
   table = refTable({ ...section, onChange: () => { renderNav(); table.refresh(); } });
+  refreshTable = () => table.refresh();
 
   const filter = el('input', { type: 'search', class: 'filter-box', placeholder: `Filter ${section.title.toLowerCase()}…`, 'aria-label': `Filter ${section.title.toLowerCase()}` });
   filter.addEventListener('input', () => table.setFilter(filter.value));

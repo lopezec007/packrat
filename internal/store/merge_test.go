@@ -22,10 +22,21 @@ const (
 	ghost
 )
 
+// Compartments: the bag has a lid and a pocket, the car a boot, the kit a
+// mesh. (Merge and sound only carry the IDs: which container a compartment
+// belongs to is the database's business.)
+const (
+	lid int64 = iota + 101
+	pocket
+	boot
+	mesh
+)
+
 var (
-	mergeNames      = map[int64]string{car: "car", bag: "bag", kit: "kit", socks: "socks", comb: "comb", lamp: "lamp", towel: "towel", ghost: "ghost"}
-	mergeContainers = map[int64]bool{car: true, bag: true, kit: true}
-	mergeStatuses   = []string{1: "stored", 2: "packed", 3: "missing"} // 1 is the default status
+	mergeNames        = map[int64]string{car: "car", bag: "bag", kit: "kit", socks: "socks", comb: "comb", lamp: "lamp", towel: "towel", ghost: "ghost"}
+	mergeCompartments = map[int64]string{lid: "lid", pocket: "pocket", boot: "boot", mesh: "mesh"}
+	mergeContainers   = map[int64]bool{car: true, bag: true, kit: true}
+	mergeStatuses     = []string{1: "stored", 2: "packed", 3: "missing"} // 1 is the default status
 )
 
 const (
@@ -36,25 +47,30 @@ const (
 
 // Rows are written as one line each:
 //
-//	item [in container] [xQUANTITY] [unit] [@status] [#notes]
+//	item [in container[/compartment]] [xQUANTITY] [unit] [@status] [#notes]
 //
-// e.g. "socks in bag x2 pairs @packed #wool". The quantity is 1 and the
+// e.g. "socks in bag/lid x2 pairs @packed #wool". The quantity is 1 and the
 // status "stored" unless the line says otherwise; show leaves both out again
 // when they are just that.
 func parseRow(line string) Entry {
-	id := func(name string) int64 {
-		for id, n := range mergeNames {
+	find := func(names map[int64]string, what, name string) int64 {
+		for id, n := range names {
 			if n == name {
 				return id
 			}
 		}
-		panic(fmt.Sprintf("row %q: no item %q", line, name))
+		panic(fmt.Sprintf("row %q: no %s %q", line, what, name))
 	}
+	id := func(name string) int64 { return find(mergeNames, "item", name) }
 	tok := strings.Fields(line)
 	e := Entry{ItemID: id(tok[0]), Quantity: 1, StatusID: stored}
 	tok = tok[1:]
 	if len(tok) >= 2 && tok[0] == "in" {
-		e.ContainerID = new(id(tok[1]))
+		container, compartment, has := strings.Cut(tok[1], "/")
+		e.ContainerID = new(id(container))
+		if has {
+			e.CompartmentID = new(find(mergeCompartments, "compartment", compartment))
+		}
 		tok = tok[2:]
 	}
 	for _, w := range tok {
@@ -98,6 +114,9 @@ func show(rows []Entry) []string {
 		s := mergeNames[e.ItemID]
 		if c := containerOf(e); c != 0 {
 			s += " in " + mergeNames[c]
+		}
+		if e.CompartmentID != nil {
+			s += "/" + mergeCompartments[*e.CompartmentID]
 		}
 		if e.Quantity != 1 {
 			s += fmt.Sprintf(" x%d", e.Quantity)
@@ -197,6 +216,35 @@ func TestMergeStatuses(t *testing.T) {
 	wantRows(t, "default missing", got, "bag @missing", "comb in bag @missing", "socks in bag @missing", "towel")
 }
 
+// ---------------------------------------------------------------- compartments
+
+func TestMergeCompartments(t *testing.T) {
+	// A copy keeps every row in its compartment.
+	lines := []string{"car", "bag in car/boot", "socks in bag/lid x2", "kit in bag/pocket", "comb in kit/mesh", "towel in bag", "lamp in car"}
+	wantRows(t, "copy of a list", merge(list(lines...)), lines...)
+	wantRows(t, "copy of a template", merge(template(lines...)), lines...)
+
+	// The same placement in different compartments is still one row: the
+	// first list's compartment stands (and "none" is a compartment like any
+	// other), while the quantity is the larger as ever.
+	a := list("bag", "socks in bag/lid x2", "comb in bag", "towel in bag/pocket x3", "lamp in bag/lid")
+	b := list("bag", "socks in bag/pocket x5", "comb in bag/lid x4", "towel in bag", "lamp in bag/lid x2")
+	wantRows(t, "a+b", merge(a, b), "bag", "socks in bag/lid x5", "comb in bag x4", "towel in bag/pocket x3", "lamp in bag/lid x2")
+	wantRows(t, "b+a", merge(b, a), "bag", "socks in bag/pocket x5", "comb in bag/lid x4", "towel in bag x3", "lamp in bag/lid x2")
+
+	// A container goes where the first list has it, compartment included;
+	// what a later list packs into its compartments follows it there, since
+	// a compartment belongs to the container, wherever that is.
+	x := list("car", "bag in car/boot", "socks in bag/lid")
+	y := list("bag", "comb in bag/pocket", "kit in bag/lid", "lamp in kit/mesh", "socks in bag/pocket")
+	wantRows(t, "x+y", merge(x, y), "car", "bag in car/boot", "socks in bag/lid", "comb in bag/pocket", "kit in bag/lid", "lamp in kit/mesh")
+	wantRows(t, "y+x", merge(y, x), "bag", "comb in bag/pocket", "kit in bag/lid", "lamp in kit/mesh", "socks in bag/pocket", "car")
+
+	// Something in two containers keeps the compartment it has in each.
+	wantRows(t, "two places", merge(list("bag", "socks in bag/lid"), list("kit", "socks in kit/mesh", "socks")),
+		"bag", "socks in bag/lid", "kit", "socks in kit/mesh", "socks")
+}
+
 // ---------------------------------------------------------------- one source, no sources
 
 func TestMergeSingleSourceIsACopy(t *testing.T) {
@@ -285,12 +333,42 @@ func TestSound(t *testing.T) {
 		{"duplicate placements",
 			[]string{"bag", "socks in bag x2", "socks in bag x3 pairs", "socks"},
 			[]string{"bag", "socks in bag x2", "socks"}},
+		// Compartments are left alone in a sound list...
+		{"sound, with compartments",
+			[]string{"car", "bag in car/boot", "socks in bag/lid", "kit in bag/pocket", "comb in kit/mesh"},
+			[]string{"car", "bag in car/boot", "socks in bag/lid", "kit in bag/pocket", "comb in kit/mesh"}},
+		// ...but a row that is moved to the top level is in no container, so
+		// in no compartment; what hangs from it keeps its own.
+		{"orphan in a compartment",
+			[]string{"socks in ghost/lid", "bag", "comb in bag/pocket"},
+			[]string{"socks", "bag", "comb in bag/pocket"}},
+		{"orphaned container in a compartment",
+			[]string{"comb in kit/mesh x2", "kit in ghost/boot", "socks in kit"},
+			[]string{"comb in kit/mesh x2", "kit", "socks in kit"}},
+		{"circle through compartments",
+			[]string{"comb in kit/mesh", "bag in kit/mesh", "kit in bag/lid", "socks in bag/pocket"},
+			[]string{"comb in kit/mesh", "bag", "kit in bag/lid", "socks in bag/pocket"}},
+		{"inside itself, in a compartment",
+			[]string{"bag in bag/lid", "socks in bag/lid"},
+			[]string{"bag", "socks in bag/lid"}},
+		// Same placement twice, in two compartments: the first stays.
+		{"duplicate placements in two compartments",
+			[]string{"bag", "socks in bag/lid x2", "socks in bag/pocket x3"},
+			[]string{"bag", "socks in bag/lid x2"}},
+		{"repair lands on a taken placement",
+			[]string{"socks x2", "socks in ghost/lid x5"},
+			[]string{"socks x2"}},
 	}
 	for _, c := range cases {
 		got := sound(rows(c.in...))
 		wantRows(t, c.name, got, c.want...)
 		if err := checkTree(got); err != nil {
 			t.Errorf("%s: %v", c.name, err)
+		}
+		for _, e := range got {
+			if e.ContainerID == nil && e.CompartmentID != nil {
+				t.Errorf("%s: %s is at the top level and in a compartment", c.name, mergeNames[e.ItemID])
+			}
 		}
 	}
 }
@@ -302,6 +380,11 @@ func TestMergeOfUnsoundLists(t *testing.T) {
 	wantRows(t, "a", merge(a), "socks", "bag", "kit in bag", "comb in kit")
 	wantRows(t, "a+b", merge(a, b), "socks", "bag", "kit in bag", "comb in kit", "comb in bag")
 	wantRows(t, "b+a", merge(b, a), "kit", "bag in kit", "socks", "comb in bag", "comb in kit")
+
+	// Rows that are detached lose their compartment on the way.
+	c := list("socks in ghost/lid", "bag in kit/mesh", "kit in bag/pocket", "comb in kit/mesh")
+	wantRows(t, "c", merge(c), "socks", "bag", "kit in bag/pocket", "comb in kit/mesh")
+	wantRows(t, "b+c", merge(b, c), "kit", "bag in kit", "socks", "comb in bag", "comb in kit/mesh")
 }
 
 // ---------------------------------------------------------------- properties
@@ -356,10 +439,26 @@ func checkTree(rows []Entry) error {
 	return nil
 }
 
-// checkRules is checkTree plus rules 1 and 2 of contents.go: only containers
-// hold things, and a container is on the list once.
+// The random lists give container c the compartments 10c+1 and 10c+2.
+// checkCompartments reports a row that is in a compartment without being in
+// that compartment's container.
+func checkCompartments(rows []Entry) error {
+	for _, r := range rows {
+		if r.CompartmentID != nil && *r.CompartmentID/10 != containerOf(r) {
+			return fmt.Errorf("item %d is in container %d and in compartment %d, which is not one of that container's", r.ItemID, containerOf(r), *r.CompartmentID)
+		}
+	}
+	return nil
+}
+
+// checkRules is checkTree and checkCompartments plus rules 1 and 2 of
+// contents.go: only containers hold things, and a container is on the list
+// once.
 func checkRules(rows []Entry, isContainer map[int64]bool) error {
 	if err := checkTree(rows); err != nil {
+		return err
+	}
+	if err := checkCompartments(rows); err != nil {
 		return err
 	}
 	times := map[int64]int{}
@@ -399,6 +498,9 @@ func randomRow(r *rand.Rand, container, item int64) Entry {
 	e := Entry{ItemID: item, Quantity: 1 + r.Int64N(5), StatusID: 1 + r.Int64N(3)}
 	if container != 0 {
 		e.ContainerID = &container
+		if n := r.Int64N(4); n < 2 { // half the rows in a container are in one of its compartments
+			e.CompartmentID = new(container*10 + 1 + n)
+		}
 	}
 	if u := []string{"", "", "kg", "pairs"}[r.IntN(4)]; u != "" {
 		e.Unit = &u
@@ -500,10 +602,14 @@ func TestMergeOfRandomListsIsATree(t *testing.T) {
 			at[place{containerOf(e), e.ItemID}] = e
 		}
 		onSources := map[place]bool{}
+		firstCompartment := map[place]*int64{}       // the compartment a placement has on the first list that has it
 		templateStatus := map[int64]map[int64]bool{} // item -> the statuses it has on templates
 		for i, src := range sources {
 			for _, r := range src.Rows {
 				p := place{containerOf(r), r.ItemID}
+				if !onSources[p] {
+					firstCompartment[p] = r.CompartmentID
+				}
 				onSources[p] = true
 				if src.IsTemplate {
 					if templateStatus[r.ItemID] == nil {
@@ -523,8 +629,12 @@ func TestMergeOfRandomListsIsATree(t *testing.T) {
 			}
 		}
 		for _, e := range got {
-			if !onSources[place{containerOf(e), e.ItemID}] {
+			p := place{containerOf(e), e.ItemID}
+			if !onSources[p] {
 				fail("item %d in %d is on no source", e.ItemID, containerOf(e))
+			}
+			if !sameID(e.CompartmentID, firstCompartment[p]) {
+				fail("item %d in %d is not in the compartment the first list with it has it in", e.ItemID, containerOf(e))
 			}
 			if e.StatusID != defaultStatus && !templateStatus[e.ItemID][e.StatusID] {
 				fail("item %d has status %d, which is neither the default nor a template's", e.ItemID, e.StatusID)
@@ -580,6 +690,9 @@ func TestSoundOfRandomRowsIsATree(t *testing.T) {
 			t.Errorf("seed %d: %v\n in  %v\n got %v", seed, err, before, got)
 			continue
 		}
+		if err := checkCompartments(got); err != nil {
+			t.Errorf("seed %d: %v\n in  %v\n got %v", seed, err, before, got)
+		}
 		if !reflect.DeepEqual(itemSet(got), itemSet(before)) {
 			t.Errorf("seed %d: sound lost an item\n in  %v\n got %v", seed, before, got)
 		}
@@ -596,7 +709,10 @@ func TestSoundOfRandomRowsIsATree(t *testing.T) {
 			{{Rows: append([]Entry(nil), in...)}, randomList(r)},
 			{randomList(r), {Rows: append([]Entry(nil), in...)}},
 		} {
-			if err := checkTree(Merge(sources, randIsContainer, 1)); err != nil {
+			got := Merge(sources, randIsContainer, 1)
+			if err := checkTree(got); err != nil {
+				t.Errorf("seed %d: merge of %d lists: %v\n sources %v", seed, len(sources), err, sources)
+			} else if err := checkCompartments(got); err != nil {
 				t.Errorf("seed %d: merge of %d lists: %v\n sources %v", seed, len(sources), err, sources)
 			}
 		}

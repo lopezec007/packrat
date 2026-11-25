@@ -15,6 +15,11 @@ package store
 //     different containers: socks in the suitcase and socks in the day bag.)
 //  3. Containers do not hold one another in a circle.
 //
+// A row can also say which compartment of its container it is in
+// (Compartment_ID, optional). The compartment must be one of that container's;
+// the database enforces that with a two-column foreign key, and the functions
+// here check it first so as to say what is wrong.
+//
 // Items.Is_Container can only change while that keeps the rules (ref.go
 // guardContainerFlag).
 
@@ -135,10 +140,11 @@ func quantityField(f Fields) (val int64, ok bool, err error) {
 }
 
 // AddContent puts an item on a list. Fields: item_id (required),
-// container_id (absent or null = top level), quantity (default 1), unit,
+// container_id (absent or null = top level), compartment_id (a compartment
+// of that container; absent or null = none), quantity (default 1), unit,
 // status_id (default: the first status) and notes.
 func (s *Store) AddContent(ctx context.Context, listID int64, f Fields) (*Content, error) {
-	if err := f.only("a list entry", "item_id", "container_id", "quantity", "unit", "status_id", "notes"); err != nil {
+	if err := f.only("a list entry", "item_id", "container_id", "compartment_id", "quantity", "unit", "status_id", "notes"); err != nil {
 		return nil, err
 	}
 	itemID, isNull, ok, err := f.Int("item_id")
@@ -153,6 +159,12 @@ func (s *Store) AddContent(ctx context.Context, listID int64, f Fields) (*Conten
 		return nil, err
 	} else if ok && !isNull {
 		container = &v
+	}
+	var compartment *int64
+	if v, isNull, ok, err := f.Int("compartment_id"); err != nil {
+		return nil, err
+	} else if ok && !isNull {
+		compartment = &v
 	}
 	quantity := int64(1)
 	if v, ok, err := quantityField(f); err != nil {
@@ -206,6 +218,9 @@ func (s *Store) AddContent(ctx context.Context, listID int64, f Fields) (*Conten
 		if err := checkFree(ctx, tx, listID, container, itemID, 0, itemName, containerName); err != nil {
 			return err
 		}
+		if err := checkCompartment(ctx, tx, compartment, container, containerName); err != nil {
+			return err
+		}
 		if !statusSent || statusNull {
 			if statusID, err = defaultStatusID(ctx, tx); err != nil {
 				return err
@@ -214,9 +229,9 @@ func (s *Store) AddContent(ctx context.Context, listID int64, f Fields) (*Conten
 			return err
 		}
 		out, err = scanContent(tx.QueryRow(ctx, `
-			INSERT INTO List_Contents (List_ID, Container_ID, Item_ID, Quantity, Unit, Status_ID, Notes)
-			VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING `+contentCols,
-			listID, container, itemID, quantity, unit, statusID, notes))
+			INSERT INTO List_Contents (List_ID, Container_ID, Compartment_ID, Item_ID, Quantity, Unit, Status_ID, Notes)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING `+contentCols,
+			listID, container, compartment, itemID, quantity, unit, statusID, notes))
 		return err
 	})
 	if err != nil {
@@ -250,10 +265,13 @@ func lockContent(ctx context.Context, tx pgx.Tx, id int64) (Content, error) {
 }
 
 // UpdateContent changes a row. Fields: container_id (null = top level; a
-// container takes what is inside it along), quantity, unit, status_id and
-// notes. The item itself cannot be changed: remove the row and add another.
+// container takes what is inside it along), compartment_id (a compartment of
+// the container the row is, or is being put, in; null = none), quantity,
+// unit, status_id and notes. Moving a row to another container takes it out
+// of its compartment unless one of the new container's is given. The item
+// itself cannot be changed: remove the row and add another.
 func (s *Store) UpdateContent(ctx context.Context, id int64, f Fields) (*Content, error) {
-	if err := f.only("a list entry", "container_id", "quantity", "unit", "status_id", "notes"); err != nil {
+	if err := f.only("a list entry", "container_id", "compartment_id", "quantity", "unit", "status_id", "notes"); err != nil {
 		return nil, err
 	}
 	var out Content
@@ -262,14 +280,35 @@ func (s *Store) UpdateContent(ctx context.Context, id int64, f Fields) (*Content
 		if err != nil {
 			return err
 		}
-		if v, isNull, ok, err := f.Int("container_id"); err != nil {
+		container, containerNull, containerSent, err := f.Int("container_id")
+		if err != nil {
 			return err
-		} else if ok {
-			var to *int64
-			if !isNull {
-				to = &v
+		}
+		compartment, compartmentNull, compartmentSent, err := f.Int("compartment_id")
+		if err != nil {
+			return err
+		}
+		if containerSent || compartmentSent {
+			to := cur.ContainerID
+			if containerSent {
+				to = nil
+				if !containerNull {
+					to = &container
+				}
 			}
-			if err := moveContent(ctx, tx, cur, to); err != nil {
+			// The compartment asked for; else none after a move to another
+			// container (the old one's compartments are not the new one's);
+			// else the one it is in.
+			var in *int64
+			switch {
+			case compartmentSent && !compartmentNull:
+				in = &compartment
+			case compartmentSent, !sameID(to, cur.ContainerID):
+				in = nil
+			default:
+				in = cur.CompartmentID
+			}
+			if err := moveContent(ctx, tx, cur, to, in); err != nil {
 				return err
 			}
 		}
@@ -316,49 +355,94 @@ func (s *Store) UpdateContent(ctx context.Context, id int64, f Fields) (*Content
 	return &out, nil
 }
 
-// moveContent puts a row into another container (nil = the top level).
-// What is inside a container moves with it, since its contents refer to the
-// container's item, not to its row.
-func moveContent(ctx context.Context, tx pgx.Tx, cur Content, to *int64) error {
-	same := (to == nil && cur.ContainerID == nil) || (to != nil && cur.ContainerID != nil && *to == *cur.ContainerID)
-	if same {
+func sameID(a, b *int64) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
+}
+
+// checkCompartment verifies that a compartment (nil = none) is one of the
+// container's (nil = top level).
+func checkCompartment(ctx context.Context, tx pgx.Tx, compartment, container *int64, containerName string) error {
+	if compartment == nil {
 		return nil
 	}
-	itemName, _, err := itemInfo(ctx, tx, cur.ItemID, "item_id")
+	if container == nil {
+		return Invalid("an entry at the top level of a list is in no container, so it cannot be in a compartment")
+	}
+	if !fitsInt(*compartment) {
+		return Invalid("compartment_id: there is no compartment %d", *compartment)
+	}
+	var itemID int64
+	err := tx.QueryRow(ctx, `SELECT Item_ID FROM Compartments WHERE ID = $1`, *compartment).Scan(&itemID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Invalid("compartment_id: there is no compartment %d", *compartment)
+	}
 	if err != nil {
 		return err
 	}
+	if itemID != *container {
+		if containerName == "" {
+			if containerName, _, err = itemInfo(ctx, tx, *container, "container_id"); err != nil {
+				return err
+			}
+		}
+		return Invalid("that compartment is not one of %q's", containerName)
+	}
+	return nil
+}
+
+// moveContent puts a row into another container (nil = the top level) and
+// into one of that container's compartments (nil = none). What is inside a
+// container moves with it, since its contents refer to the container's item,
+// not to its row.
+func moveContent(ctx context.Context, tx pgx.Tx, cur Content, to, compartment *int64) error {
+	moved := !sameID(to, cur.ContainerID)
+	if !moved && sameID(compartment, cur.CompartmentID) {
+		return nil
+	}
 	containerName := ""
-	if to != nil {
-		if *to == cur.ItemID {
-			return Invalid("%q cannot be put inside itself", itemName)
-		}
-		if containerName, err = checkContainer(ctx, tx, cur.ListID, *to); err != nil {
-			return err
-		}
-		// Rule 3: the destination must not be inside the thing being moved.
-		// Walk up from the destination; containers are on the list once, so
-		// each step has one answer.
-		parent := map[int64]*int64{}
-		rows, err := queryContents(ctx, tx, cur.ListID)
+	if moved {
+		itemName, _, err := itemInfo(ctx, tx, cur.ItemID, "item_id")
 		if err != nil {
 			return err
 		}
-		for _, r := range rows {
-			parent[r.ItemID] = r.ContainerID
-		}
-		at := to
-		for steps := 0; at != nil && steps <= len(rows); steps++ {
-			if *at == cur.ItemID {
-				return Invalid("%q cannot be moved into %q, which is inside it", itemName, containerName)
+		if to != nil {
+			if *to == cur.ItemID {
+				return Invalid("%q cannot be put inside itself", itemName)
 			}
-			at = parent[*at]
+			if containerName, err = checkContainer(ctx, tx, cur.ListID, *to); err != nil {
+				return err
+			}
+			// Rule 3: the destination must not be inside the thing being moved.
+			// Walk up from the destination; containers are on the list once, so
+			// each step has one answer.
+			parent := map[int64]*int64{}
+			rows, err := queryContents(ctx, tx, cur.ListID)
+			if err != nil {
+				return err
+			}
+			for _, r := range rows {
+				parent[r.ItemID] = r.ContainerID
+			}
+			at := to
+			for steps := 0; at != nil && steps <= len(rows); steps++ {
+				if *at == cur.ItemID {
+					return Invalid("%q cannot be moved into %q, which is inside it", itemName, containerName)
+				}
+				at = parent[*at]
+			}
+		}
+		if err := checkFree(ctx, tx, cur.ListID, to, cur.ItemID, cur.ID, itemName, containerName); err != nil {
+			return err
 		}
 	}
-	if err := checkFree(ctx, tx, cur.ListID, to, cur.ItemID, cur.ID, itemName, containerName); err != nil {
+	if err := checkCompartment(ctx, tx, compartment, to, containerName); err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `UPDATE List_Contents SET Container_ID = $1 WHERE ID = $2`, to, cur.ID)
+	// Both columns in one statement: together they must name a compartment of the container.
+	_, err := tx.Exec(ctx, `UPDATE List_Contents SET Container_ID = $1, Compartment_ID = $2 WHERE ID = $3`, to, compartment, cur.ID)
 	return err
 }
 
@@ -403,7 +487,8 @@ func (s *Store) DeleteContent(ctx context.Context, id int64, keepContents bool) 
 		if _, err := tx.Exec(ctx, `DELETE FROM List_Contents WHERE ID = $1`, id); err != nil {
 			return err
 		}
-		_, err = tx.Exec(ctx, `UPDATE List_Contents SET Container_ID = $1 WHERE List_ID = $2 AND Container_ID = $3`,
+		// (Out of the removed container's compartments too: they are not the new container's.)
+		_, err = tx.Exec(ctx, `UPDATE List_Contents SET Container_ID = $1, Compartment_ID = NULL WHERE List_ID = $2 AND Container_ID = $3`,
 			cur.ContainerID, cur.ListID, cur.ItemID)
 		return err
 	})

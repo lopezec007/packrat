@@ -9,13 +9,16 @@ test('the page shows the demo lists, ordinary ones apart from the templates', as
   await page.goto('/');
   await expect(page).toHaveURL(/#\/lists$/);
   await expect(page.locator('.nav a[aria-current="page"]')).toHaveText('Lists');
+  // The icon is a rat: beside the name, and in the tab.
+  await expect(page.locator('.brand svg.brand-rat')).toBeVisible();
+  expect(await page.locator('link[rel="icon"]').getAttribute('href')).toContain('data:image/svg+xml');
   await expect(page.locator('.lists-table .group-row')).toHaveText([/^Lists/, /^Templates/]);
   const names = await page.locator('.lists-table .row[data-name]').evaluateAll((els) => els.map((e) => e.dataset.name));
   expect(names.indexOf('Paris 2027')).toBeLessThan(names.indexOf('Camping Weekend'));
   await expect(listRow(page, 'Camping Weekend').locator('.num')).toHaveText('25');
   await expect(listRow(page, 'Camping Weekend').locator('input[type="checkbox"]')).toBeChecked();
   await expect(listRow(page, 'Paris 2027').locator('input[type="checkbox"]')).not.toBeChecked();
-  await expect(listRow(page, 'Paris 2027').locator('.status-bar')).toHaveAttribute('title', /9 In Storage Location · 7 Packed · 1 Missing/);
+  await expect(listRow(page, 'Paris 2027').locator('.status-bar')).toHaveAttribute('title', /1 Missing · 9 In Storage Location · 7 Packed/); // from the worst status to the best
   // The filter narrows both groups.
   await page.locator('.filter-box').fill('camp');
   await expect(page.locator('.lists-table .row[data-name]')).toHaveCount(1);

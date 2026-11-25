@@ -13,7 +13,9 @@ import (
 )
 
 // fx is a store with a small library to pack: four containers and four
-// things that are not, all in one category and one storage location.
+// things that are not, all in one category and one storage location. Three
+// of the containers have compartments: the bag a lid and a pocket, the car a
+// boot, the kit a mesh.
 type fx struct {
 	t  *testing.T
 	st *store.Store
@@ -21,18 +23,22 @@ type fx struct {
 	category, location       int64
 	car, bag, kit, crate     int64 // containers
 	socks, comb, lamp, towel int64 // not containers
+	lid, pocket, boot, mesh  int64 // compartments: of the bag, the bag, the car, the kit
 	stored, packed, missing  int64 // the seeded statuses; stored is the one new rows start with
 
-	itemID     map[string]int64
-	itemName   map[int64]string
-	statusID   map[string]int64
-	statusName map[int64]string
+	itemID          map[string]int64
+	itemName        map[int64]string
+	compartmentID   map[string]int64
+	compartmentName map[int64]string
+	statusID        map[string]int64
+	statusName      map[int64]string
 }
 
 func newFx(t *testing.T) *fx {
 	t.Helper()
 	st := testdb.New(t)
-	f := &fx{t: t, st: st, itemID: map[string]int64{}, itemName: map[int64]string{}}
+	f := &fx{t: t, st: st, itemID: map[string]int64{}, itemName: map[int64]string{},
+		compartmentID: map[string]int64{}, compartmentName: map[int64]string{}}
 	f.category = rowID(mustCreate(t, st, "item_categories", `{"name": "Gear"}`))
 	f.location = rowID(mustCreate(t, st, "storage_locations", `{"name": "Garage"}`))
 	item := func(name string, container bool) int64 {
@@ -44,6 +50,12 @@ func newFx(t *testing.T) *fx {
 	}
 	f.car, f.bag, f.kit, f.crate = item("car", true), item("bag", true), item("kit", true), item("crate", true)
 	f.socks, f.comb, f.lamp, f.towel = item("socks", false), item("comb", false), item("lamp", false), item("towel", false)
+	compartment := func(container int64, name string) int64 {
+		id := rowID(mustCreate(t, st, "compartments", mustJSON(t, map[string]any{"item_id": container, "name": name})))
+		f.compartmentID[name], f.compartmentName[id] = id, name
+		return id
+	}
+	f.lid, f.pocket, f.boot, f.mesh = compartment(f.bag, "lid"), compartment(f.bag, "pocket"), compartment(f.car, "boot"), compartment(f.kit, "mesh")
 	f.stored, f.packed, f.missing = 1, 2, 3
 	f.statusID = map[string]int64{"stored": f.stored, "packed": f.packed, "missing": f.missing}
 	f.statusName = map[int64]string{f.stored: "stored", f.packed: "packed", f.missing: "missing"}
@@ -52,9 +64,9 @@ func newFx(t *testing.T) *fx {
 
 // Rows are written as one line each, as in merge_test.go:
 //
-//	item [in container] [xQUANTITY] [unit] [@status] [#notes]
+//	item [in container[/compartment]] [xQUANTITY] [unit] [@status] [#notes]
 //
-// e.g. "socks in bag x2 pairs @packed #wool". entry turns a line into the
+// e.g. "socks in bag/lid x2 pairs @packed #wool". entry turns a line into the
 // body AddContent takes, sending only what the line says; show writes a row
 // back the same way, leaving out a quantity of 1 and the status "stored".
 func (f *fx) entry(line string) map[string]any {
@@ -70,7 +82,15 @@ func (f *fx) entry(line string) map[string]any {
 	body := map[string]any{"item_id": id(tok[0])}
 	tok = tok[1:]
 	if len(tok) >= 2 && tok[0] == "in" {
-		body["container_id"] = id(tok[1])
+		container, compartment, has := strings.Cut(tok[1], "/")
+		body["container_id"] = id(container)
+		if has {
+			c, ok := f.compartmentID[compartment]
+			if !ok {
+				f.t.Fatalf("row %q: no compartment %q", line, compartment)
+			}
+			body["compartment_id"] = c
+		}
 		tok = tok[2:]
 	}
 	for _, w := range tok {
@@ -96,6 +116,13 @@ func (f *fx) line(c store.Content) string {
 	s := f.itemName[c.ItemID]
 	if c.ContainerID != nil {
 		s += " in " + f.itemName[*c.ContainerID]
+	}
+	if c.CompartmentID != nil {
+		name, ok := f.compartmentName[*c.CompartmentID]
+		if !ok {
+			name = strconv.FormatInt(*c.CompartmentID, 10)
+		}
+		s += "/" + name
 	}
 	if c.Quantity != 1 {
 		s += fmt.Sprintf(" x%d", c.Quantity)
@@ -186,8 +213,8 @@ func (f *fx) want(list int64, lines ...string) {
 	}
 }
 
-// row finds a row of a list by its place: "socks in bag", or "bag" for the
-// top level.
+// row finds a row of a list by its place: "socks in bag" (whatever the
+// compartment), or "bag" for the top level.
 func (f *fx) row(list int64, place string) store.Content {
 	f.t.Helper()
 	for _, c := range f.get(list).Contents {

@@ -183,6 +183,11 @@ func TestUnknownEndpoints(t *testing.T) {
 		{"GET", "/api/ref/items/1"},
 		{"GET", "/api/ref/items/1/lists"},
 		{"GET", "/api/v1/lists"},
+		{"GET", "/api/statuses"},
+		{"GET", "/api/statuses/order"},
+		{"PUT", "/api/statuses/order"},
+		{"POST", "/api/statuses/order/1"},
+		{"POST", "/api/ref/statuses/order"},
 	} {
 		e.fails(http.StatusNotFound, r[0], r[1], nil, "no such API endpoint: "+r[0]+" "+r[1])
 	}
@@ -225,6 +230,9 @@ func TestBadIDs(t *testing.T) {
 		{"PATCH", "/api/ref/items/%s", jmap{"name": "Renamed"}},
 		{"PATCH", "/api/ref/items/%s", jmap{"is_container": true}},
 		{"DELETE", "/api/ref/items/%s", nil},
+		{"PATCH", "/api/ref/compartments/%s", jmap{"name": "Renamed"}},
+		{"PATCH", "/api/ref/compartments/%s", jmap{"item_id": 1}},
+		{"DELETE", "/api/ref/compartments/%s", nil},
 	}
 	for _, r := range routes {
 		for _, id := range bad {
@@ -269,6 +277,7 @@ func TestMalformedBodies(t *testing.T) {
 		{"POST", "/api/lists/preview"},
 		{"PATCH", "/api/lists/1"},
 		{"POST", "/api/lists/1/statuses"},
+		{"POST", "/api/statuses/order"},
 		{"POST", "/api/lists/1/contents"},
 		{"PATCH", "/api/contents/1"},
 		{"POST", "/api/ref/item_categories"},
@@ -343,7 +352,7 @@ func TestMalformedBodies(t *testing.T) {
 
 	// None of it changed anything.
 	want := jmap{"id": 1.0, "name": "Trip", "is_template": false, "rows": 1.0, "status_counts": jmap{"1": 1.0},
-		"contents": []any{jmap{"id": 1.0, "list_id": 1.0, "container_id": nil, "item_id": 1.0, "quantity": 1.0, "unit": nil, "status_id": 1.0, "notes": nil}}}
+		"contents": []any{jmap{"id": 1.0, "list_id": 1.0, "container_id": nil, "compartment_id": nil, "item_id": 1.0, "quantity": 1.0, "unit": nil, "status_id": 1.0, "notes": nil}}}
 	if got := e.obj(http.StatusOK, "GET", "/api/lists/1", nil); !reflect.DeepEqual(got, want) {
 		t.Fatalf("the list after the refused requests:\n got  %v\n want %v", got, want)
 	}

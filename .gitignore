@@ -7,3 +7,4 @@ e2e/playwright-report/
 /.claude/worktrees/
 *.env
 !deploy/packrat.env.example
+/backups/

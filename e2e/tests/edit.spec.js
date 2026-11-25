@@ -75,7 +75,7 @@ test('items are added inside a container, and a container is only offered while 
   await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
 
-  // "Add item" in the title bar adds beside the selected entry, or inside the selected container.
+  // "Add item" in the title bar adds at the top level, whatever is selected.
   await row(page, 'Comb').locator('.item-name').click();
   await page.locator('#btn-add-item').click();
   await page.keyboard.type('toothbrush');
@@ -83,7 +83,8 @@ test('items are added inside a container, and a container is only offered while 
   done = saved(page, 'POST');
   await page.keyboard.press('Enter');
   await done;
-  expect((await pack.fetch(list.id)).entry('Toothbrush').container).toBe('Blue Backpack');
+  expect((await pack.fetch(list.id)).entry('Toothbrush').container).toBeNull();
+  await expect(row(page, 'Toothbrush')).toHaveAttribute('aria-level', '1');
   await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
   await row(page, 'Car').locator('.item-name').click();
@@ -93,7 +94,7 @@ test('items are added inside a container, and a container is only offered while 
   done = saved(page, 'POST');
   await page.keyboard.press('Enter');
   await done;
-  expect((await pack.fetch(list.id)).entry('Camp Chair').container).toBe('Car');
+  expect((await pack.fetch(list.id)).entry('Camp Chair').container).toBeNull();
 });
 
 test('a name that is not in the library creates the item on the way, with a new category', async ({ page, pack }) => {

@@ -4,6 +4,10 @@
 // Migrations are the numbered .sql files in migrations/, applied in order,
 // each in its own transaction, and recorded in the Schema_Migrations table.
 // A released migration is never edited: schema changes are new files.
+//
+// Before migrations are applied to a database that is already in use, the
+// service backs it up (MigrateWith and backup.go), and does not migrate if
+// it cannot.
 package db
 
 import (
@@ -95,9 +99,24 @@ func loadMigrations() ([]migration, error) {
 // migrating at once ("PKRT" in ASCII).
 const migrationLock = 0x504b5254
 
+// BeforeMigrate is what MigrateWith calls before it changes a database that
+// is already in use: from is the schema version the database is at, to the
+// one it is about to be brought to. An error stops the migration before
+// anything is changed. (The service passes a function that backs the
+// database up: see Backup.)
+type BeforeMigrate func(ctx context.Context, from, to int) error
+
 // Migrate brings the schema up to date and returns the names of the
 // migrations it applied (none when already current).
 func Migrate(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
+	return MigrateWith(ctx, pool, nil)
+}
+
+// MigrateWith is Migrate with a step before the first migration is applied:
+// when there are migrations to apply and the database already has a schema
+// (it is not a fresh one, which has nothing to lose), before is called, and
+// the migrations only go ahead if it returns nil.
+func MigrateWith(ctx context.Context, pool *pgxpool.Pool, before BeforeMigrate) ([]string, error) {
 	migs, err := loadMigrations()
 	if err != nil {
 		return nil, err
@@ -129,6 +148,12 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
 	}
 	if current > len(migs) {
 		return nil, fmt.Errorf("database is at schema version %d but this build only knows up to %d; install a newer packrat", current, len(migs))
+	}
+
+	if before != nil && current > 0 && current < len(migs) {
+		if err := before(ctx, current, len(migs)); err != nil {
+			return nil, fmt.Errorf("before upgrading the schema from version %d to %d: %w", current, len(migs), err)
+		}
 	}
 
 	var applied []string

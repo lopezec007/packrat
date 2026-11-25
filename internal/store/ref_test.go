@@ -140,18 +140,18 @@ func TestSeedsAndListAll(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != len(store.RefTables) || len(all) != 4 {
+	if len(all) != len(store.RefTables) || len(all) != 5 {
 		t.Fatalf("got %d tables, want %d", len(all), len(store.RefTables))
 	}
-	for _, table := range []string{"item_categories", "storage_locations", "items"} {
+	for _, table := range []string{"item_categories", "storage_locations", "items", "compartments"} {
 		if rows, ok := all[table]; !ok || rows == nil || len(rows) != 0 {
 			t.Errorf("%s should start as an empty, non-nil list: %v", table, rows)
 		}
 	}
 	want := []store.Row{
-		{"id": int16(1), "name": "In Storage Location", "color": "#8a94a3", "shortcut": "s", "use_count": int32(0)},
-		{"id": int16(2), "name": "Packed", "color": "#2e8540", "shortcut": "p", "use_count": int32(0)},
-		{"id": int16(3), "name": "Missing", "color": "#d62828", "shortcut": "m", "use_count": int32(0)},
+		{"id": int16(1), "name": "In Storage Location", "color": "#8a94a3", "shortcut": "s", "rank": int32(2), "use_count": int32(0)},
+		{"id": int16(2), "name": "Packed", "color": "#2e8540", "shortcut": "p", "rank": int32(3), "use_count": int32(0)},
+		{"id": int16(3), "name": "Missing", "color": "#d62828", "shortcut": "m", "rank": int32(1), "use_count": int32(0)},
 	}
 	if !reflect.DeepEqual(all["statuses"], want) {
 		t.Fatalf("seeded statuses:\n got  %v\n want %v", all["statuses"], want)
@@ -224,7 +224,7 @@ func TestStatusCRUD(t *testing.T) {
 	statuses := store.RefTableByKey("statuses")
 
 	row := mustCreate(t, st, "statuses", `{"name": " Bought ", "color": "#2E8540", "shortcut": "B"}`)
-	want := store.Row{"id": int16(4), "name": "Bought", "color": "#2e8540", "shortcut": "b", "use_count": int32(0)}
+	want := store.Row{"id": int16(4), "name": "Bought", "color": "#2e8540", "shortcut": "b", "rank": int32(4), "use_count": int32(0)}
 	if !reflect.DeepEqual(row, want) {
 		t.Fatalf("created %v, want %v", row, want)
 	}

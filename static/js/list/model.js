@@ -4,47 +4,29 @@
 // An entry sits inside a container, and the container is named by its item
 // (row.container_id is an item id), so an entry's children are the rows whose
 // container_id is its item. A container is on a list once (the server keeps
-// that rule), which is what makes this a tree.
+// that rule), which is what makes this a tree. An entry can also be in one
+// of its container's compartments (row.compartment_id).
 //
-//   const tree = buildTree(rows, 'name');
+// Children are kept in reading order: compartment by compartment (in the
+// container's own order of them, then what is in none), within each the
+// containers first, and those and the items each by the sort (list/sort.js).
+//
+//   const tree = buildTree(rows, sort);
 //   tree.roots                 the top-level nodes, sorted
-//   tree.nodes.get(rowId)      a node: {id, row, item, parent, children, depth, size}
+//   tree.nodes.get(rowId)      a node: {id, row, item, name, parent, compartment, children, depth, size}
 //   tree.containers            the container nodes, in display order
 //   applyFilter(tree, pred)    sets node.match / node.show on every node
 //   visibleNodes(tree, collapsed, filtering)   the nodes the view draws, in reading order
 
-import { ref, nameOf } from '../state.js';
-import { byText, fold } from '../util.js';
+import { ref, nameOf, compartmentsOf } from '../state.js';
+import { fold } from '../util.js';
+import { compareBy } from './sort.js';
 
-/** The orders an entry's siblings can be sorted in. */
-export const SORTS = [
-  { key: 'name', label: 'Name' },
-  { key: 'category', label: 'Category' },
-  { key: 'location', label: 'Stored in' },
-  { key: 'status', label: 'Status' },
-];
-
-function sortText(node, key) {
-  if (key === 'category') return nameOf('item_categories', node.item?.item_category_id);
-  if (key === 'location') return nameOf('storage_locations', node.item?.storage_location_id);
-  return '';
-}
-
-/** Compare two sibling nodes: containers first, then by the chosen key, then by name. */
-function comparator(key) {
-  return (a, b) => {
-    const ca = a.item?.is_container ? 0 : 1, cb = b.item?.is_container ? 0 : 1;
-    if (ca !== cb) return ca - cb;
-    if (key === 'status' && a.row.status_id !== b.row.status_id) return a.row.status_id - b.row.status_id;
-    return byText(sortText(a, key), sortText(b, key)) || byText(a.name, b.name) || a.id - b.id;
-  };
-}
-
-export function buildTree(rows, sortKey = 'name') {
+export function buildTree(rows, sort = []) {
   const nodes = new Map();
   for (const row of rows) {
     const item = ref.by.items.get(row.item_id);
-    nodes.set(row.id, { id: row.id, row, item, name: item?.name ?? `Item ${row.item_id}`, parent: null, children: [], depth: 0, size: 0, match: true, show: true });
+    nodes.set(row.id, { id: row.id, row, item, name: item?.name ?? `Item ${row.item_id}`, parent: null, compartment: null, children: [], depth: 0, size: 0, match: true, show: true });
   }
   // The node that holds what is "inside item X" (a container's one place on the list).
   const holder = new Map();
@@ -55,20 +37,26 @@ export function buildTree(rows, sortKey = 'name') {
     const p = n.row.container_id == null ? null : holder.get(n.row.container_id);
     if (p && p !== n) { n.parent = p; p.children.push(n); } else roots.push(n);
   }
-  const cmp = comparator(sortKey);
+  const bySort = compareBy(sort);
   const containers = [];
   const seen = new Set();
-  (function walk(list, depth) {
-    list.sort(cmp);
+  (function walk(list, depth, holderNode) {
+    // Which compartment each child is in: its place among the container's compartments (none = after them all).
+    const order = new Map((holderNode ? compartmentsOf(holderNode.row.item_id) : []).map((c, i) => [c.id, i]));
+    for (const n of list) n.compartment = order.has(n.row.compartment_id) ? n.row.compartment_id : null;
+    const place = (n) => (n.compartment == null ? order.size : order.get(n.compartment));
+    list.sort((a, b) => place(a) - place(b)
+      || (a.item?.is_container ? 0 : 1) - (b.item?.is_container ? 0 : 1)
+      || bySort(a, b));
     for (const n of list) {
       if (seen.has(n.id)) continue; // cannot happen on a sound list; guards against a loop
       seen.add(n.id);
       n.depth = depth;
       if (n.item?.is_container) containers.push(n);
-      walk(n.children, depth + 1);
+      walk(n.children, depth + 1, n);
       n.size = n.children.reduce((sum, c) => sum + 1 + c.size, 0); // entries inside, at every depth
     }
-  }(roots, 0));
+  }(roots, 0, null));
   // Anything the walk did not reach (a loop of containers) is shown at the top level rather than lost.
   for (const n of nodes.values()) if (!seen.has(n.id)) { n.parent = null; n.children = []; n.depth = 0; roots.push(n); }
   return { roots, nodes, containers, holder };
@@ -78,7 +66,7 @@ export function buildTree(rows, sortKey = 'name') {
 export function nodeText(n) {
   return fold([
     n.name, nameOf('item_categories', n.item?.item_category_id), nameOf('storage_locations', n.item?.storage_location_id),
-    n.row.unit, n.row.notes, nameOf('statuses', n.row.status_id),
+    n.row.unit, n.row.notes, nameOf('statuses', n.row.status_id), nameOf('compartments', n.row.compartment_id),
   ].filter(Boolean).join(' '));
 }
 

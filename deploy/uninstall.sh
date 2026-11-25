@@ -7,7 +7,9 @@
 #   deploy/uninstall.sh --purge    # also DROP the database and its role, and remove
 #                                  # /etc/packrat and the system user (asks first)
 #
-# PostgreSQL itself is left installed either way.
+# PostgreSQL itself is left installed either way, and so are the dumps the
+# service took before schema upgrades (/var/lib/packrat/backups): remove those
+# yourself.
 set -euo pipefail
 
 SVC_USER=packrat
@@ -51,6 +53,12 @@ else
 fi
 log "removing /etc/packrat"
 rm -rf /etc/packrat
+if compgen -G "/var/lib/packrat/backups/*.dump" >/dev/null; then
+    echo "uninstall.sh: the dumps taken before schema upgrades are still in /var/lib/packrat/backups;" >&2
+    echo "              remove them yourself when you are sure: rm -rf /var/lib/packrat" >&2
+else
+    rm -rf /var/lib/packrat
+fi
 if getent passwd "$SVC_USER" >/dev/null; then
     log "removing system user $SVC_USER"
     userdel "$SVC_USER" || true

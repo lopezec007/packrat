@@ -65,13 +65,29 @@ FROM demo_items d
 JOIN Item_Categories c ON c.Name = d.cat
 JOIN Storage_Locations l ON l.Name = d.loc;
 
+-- Compartments of some of the containers (the two bags of the Paris list;
+-- the others have none, which is the usual case).
+CREATE TEMP TABLE demo_compartments (item text, name text);
+INSERT INTO demo_compartments VALUES
+    ('Daypack',         'Main'),
+    ('Daypack',         'Front Pocket'),
+    ('Daypack',         'Side Pocket'),
+    ('Suitcase, Large', 'Main'),
+    ('Suitcase, Large', 'Mesh Pocket');
+
+INSERT INTO Compartments (Item_ID, Name)
+SELECT i.ID, d.name
+FROM demo_compartments d
+JOIN Items i ON i.Name = d.item
+ORDER BY d.ctid;   -- keep the order written above
+
 INSERT INTO Lists (Name, Is_Template) VALUES
     ('Camping Weekend', true),
     ('Cold Weather Add-on', true),
     ('Park Day', false),
     ('Paris 2027', false);
 
-CREATE TEMP TABLE demo_contents (list text, container text, item text, qty int, unit text, status text, notes text);
+CREATE TEMP TABLE demo_contents (list text, container text, item text, qty int, unit text, status text, notes text, compartment text);
 INSERT INTO demo_contents VALUES
     -- Camping Weekend (template): everything rides in the car.
     ('Camping Weekend', NULL,            'Car',                1, NULL,    'In Storage Location', NULL),
@@ -136,13 +152,27 @@ INSERT INTO demo_contents VALUES
     ('Paris 2027', 'Daypack',         'Power Bank',        1, NULL,    'Packed',              NULL),
     ('Paris 2027', 'Daypack',         'Socks',             1, 'pairs', 'Packed',              'Spare pair for the flight');
 
-INSERT INTO List_Contents (List_ID, Container_ID, Item_ID, Quantity, Unit, Status_ID, Notes)
-SELECT l.ID, c.ID, i.ID, d.qty, d.unit, s.ID, d.notes
+-- Which compartment of its container an entry is in (most are in none).
+CREATE TEMP TABLE demo_placed (list text, container text, item text, compartment text);
+INSERT INTO demo_placed VALUES
+    ('Paris 2027',      'Suitcase, Large', 'T-Shirt',           'Main'),
+    ('Paris 2027',      'Suitcase, Large', 'Trousers',          'Main'),
+    ('Paris 2027',      'Suitcase, Large', 'Hygiene Kit',       'Mesh Pocket'),
+    ('Paris 2027',      'Daypack',         'Passport',          'Front Pocket'),
+    ('Paris 2027',      'Daypack',         'Train Tickets',     'Front Pocket'),
+    ('Paris 2027',      'Daypack',         'Camera',            'Main'),
+    ('Paris 2027',      'Daypack',         'Power Bank',        'Main');
+UPDATE demo_contents d SET compartment = p.compartment
+FROM demo_placed p WHERE p.list = d.list AND p.container = d.container AND p.item = d.item;
+
+INSERT INTO List_Contents (List_ID, Container_ID, Compartment_ID, Item_ID, Quantity, Unit, Status_ID, Notes)
+SELECT l.ID, c.ID, k.ID, i.ID, d.qty, d.unit, s.ID, d.notes
 FROM demo_contents d
 JOIN Lists l ON l.Name = d.list
 JOIN Items i ON i.Name = d.item
 JOIN Statuses s ON s.Name = d.status
-LEFT JOIN Items c ON c.Name = d.container;
+LEFT JOIN Items c ON c.Name = d.container
+LEFT JOIN Compartments k ON k.Item_ID = c.ID AND k.Name = d.compartment;
 
 DO $$
 BEGIN
@@ -152,6 +182,12 @@ BEGIN
     IF (SELECT count(*) FROM List_Contents) <> (SELECT count(*) FROM demo_contents) THEN
         RAISE EXCEPTION 'demo-data.sql: a list entry names a list, item or status that does not exist';
     END IF;
+    IF (SELECT count(*) FROM Compartments) <> (SELECT count(*) FROM demo_compartments) THEN
+        RAISE EXCEPTION 'demo-data.sql: a compartment names an item that does not exist';
+    END IF;
+    IF (SELECT count(*) FROM List_Contents WHERE Compartment_ID IS NOT NULL) <> (SELECT count(*) FROM demo_placed) THEN
+        RAISE EXCEPTION 'demo-data.sql: an entry is placed in a compartment that does not exist (or names an entry that does not)';
+    END IF;
     IF EXISTS (SELECT 1 FROM demo_contents d WHERE d.container IS NOT NULL
                AND NOT EXISTS (SELECT 1 FROM Items i WHERE i.Name = d.container AND i.Is_Container)) THEN
         RAISE EXCEPTION 'demo-data.sql: a list entry names a container that is not a container item';
@@ -159,4 +195,6 @@ BEGIN
 END $$;
 
 DROP TABLE demo_items;
+DROP TABLE demo_compartments;
 DROP TABLE demo_contents;
+DROP TABLE demo_placed;

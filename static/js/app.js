@@ -118,6 +118,20 @@ async function show() {
 
 window.addEventListener('hashchange', () => { if (!suppressHashChange) show(); });
 
+// Ctrl+F (Cmd+F) goes to the page's own filter box, which searches everything
+// on the page (a list's entries, the library), not only what is scrolled into
+// view. Pressed again with the cursor already there, it is the browser's own
+// Find as usual.
+document.addEventListener('keydown', (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'f') return;
+  const box = toolbar.querySelector('.filter-box');
+  if (!box || box === document.activeElement || document.querySelector('.modal-backdrop')) return;
+  e.preventDefault();
+  closePopover();
+  box.focus();
+  box.select();
+});
+
 function renderVersion() {
   const slot = document.getElementById('app-version');
   slot.textContent = app.version ? `v${app.version}` : '';

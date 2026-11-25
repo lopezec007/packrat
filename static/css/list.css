@@ -31,20 +31,52 @@ body[data-page="list"] .toolbar .spacer { flex: 1 1 0; min-width: 0; }
    container, so its rows can lay themselves out by the width they get. */
 /* (The padding clears the strip that fills the gap under the title bar,
    main::before, which lies a few pixels over the top of the page's content.) */
-.pack { min-width: 0; padding-top: calc(1px + var(--gap-overlap)); }
-.pk-boxes { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+.pack {
+  min-width: 0; padding-top: calc(1px + var(--gap-overlap));
+  /* The page under the boxes is somewhere to click (to select nothing) and to drop (the top level). */
+  min-height: calc(100vh - var(--topbar-h, 48px) - 2 * var(--page-gap) - 8px);
+}
+/* Boxes in a line are each as tall as what is in them (not as tall as the tallest). */
+.pk-boxes { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+/* Each level of containers is framed and headed more lightly than the one
+   around it, and its inside alternates between the two page shades, so that
+   where one container ends and the next begins shows at a glance:
+     --frame  the border's width      --band  how strongly the heading takes the status colour
+     --body   the shade inside        --head  the heading's text size
+   (data-level: 0 = the outermost; 3 = anything deeper.) */
 .pk-box {
   --c: var(--fg-muted);
+  --frame: 1px; --band: 20%; --body: var(--bg); --head: 13px;
   container-type: inline-size;
   flex: 1 1 var(--want, 400px); min-width: 0; max-width: 100%; display: flex; flex-direction: column;
-  border: 1px solid color-mix(in srgb, var(--c) 55%, var(--border)); border-radius: var(--radius);
-  background: color-mix(in srgb, var(--c) 9%, var(--bg));
+  border: var(--frame) solid color-mix(in srgb, var(--c) 60%, var(--border-strong)); border-radius: var(--radius);
+  background: color-mix(in srgb, var(--c) 5%, var(--body));
 }
+.pk-box[data-level="0"] { --frame: 3px; --band: 42%; --body: var(--bg-alt); --head: 15.5px; border-radius: 8px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.16); }
+/* A container inside another also carries a spine down its left side, thinner the deeper it is. */
+.pk-box[data-level="1"] { --frame: 2px; --band: 26%; --body: var(--bg); --head: 14px; border-left-width: 6px; }
+.pk-box[data-level="2"] { --frame: 1px; --band: 14%; --body: var(--bg-alt); --head: 13px; border-left-width: 4px; }
+.pk-box[data-level="3"] { --frame: 1px; --band: 7%; --body: var(--bg); --head: 13px; border-style: dashed; border-left-style: solid; border-left-width: 3px; }
+.pk-box[data-level="0"] > .pk-body { padding: 10px; gap: 10px; }
 .pk-body { display: flex; flex-direction: column; gap: 8px; padding: 8px; }
 /* What is on the list without being in any container: a plain box. */
 .pk-box.loose { border-style: dashed; border-color: var(--border-strong); background: transparent; padding: 0 8px 8px; }
 .pk-box.loose > .pk-list:first-child { margin-top: 8px; }
 .pk-loose-head { padding: 6px 2px 5px; color: var(--fg-muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+/* A compartment of a container: a plain box of its own inside the container's,
+   with the compartment's name, holding what is in it. It takes its place in
+   the line with the containers that are in no compartment. */
+.pk-comp {
+  container-type: inline-size;
+  flex: 1 1 var(--want, 400px); min-width: 0; max-width: 100%; display: flex; flex-direction: column; gap: 6px;
+  padding: 0 6px 6px; border: 1px dashed var(--border-strong); border-radius: 5px;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+}
+.pk-comp-head { display: flex; align-items: center; gap: 8px; min-height: 26px; padding: 2px 2px 0; }
+.pk-comp-name { color: var(--header-fg); font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pk-comp-empty { color: var(--fg-muted); font-size: 12px; font-style: italic; }
+.pk-comp-head .add-to-compartment { margin-left: auto; width: 22px; height: 22px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.pk-comp:not(:hover):not(:focus-within) .add-to-compartment { opacity: 0.45; }
 /* The items packed straight into a container. */
 .pk-list { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); overflow: hidden; }
 .pack > .empty { border: 1px dashed var(--border); border-radius: var(--radius); }
@@ -77,7 +109,7 @@ body[data-page="list"] .toolbar .spacer { flex: 1 1 0; min-width: 0; }
 .pack .meta > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .pack .meta > .location:not(:empty)::before { content: "·"; margin: 0 6px; }
 .pack .row.entry > .ed { padding-left: 2px; padding-right: 2px; }
-.pack .item-name { overflow: hidden; text-overflow: ellipsis; padding-left: 2px; }
+.pack .item-name { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; padding-left: 2px; }
 .pack .qty-input { flex: 0 0 38px; width: 38px; }
 .pack .unit-input { flex: 1 1 auto; min-width: 0; }
 .pack .notes-input { font-size: 12.5px; }
@@ -95,18 +127,31 @@ body[data-page="list"] .toolbar .spacer { flex: 1 1 0; min-width: 0; }
 /* A container's heading: the same fields, on a band in its status's colour. */
 .pk-box > .row.entry.container {
   border-top: none; border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0;
-  background: color-mix(in srgb, var(--c) 24%, var(--bg)); box-shadow: none; padding-left: 0;
+  background: color-mix(in srgb, var(--c) var(--band), var(--bg)); box-shadow: none; padding-left: 0;
 }
-.pk-box > .row.entry.container:hover { background: color-mix(in srgb, var(--c) 31%, var(--bg)); }
+.pk-box > .row.entry.container:hover { background: color-mix(in srgb, var(--c) calc(var(--band) + 7%), var(--bg)); }
 .pk-box.closed > .row.entry.container, .pk-box > .row.entry.container:last-child { border-radius: calc(var(--radius) - 1px); }
-.pack .row.container .item-name { font-weight: 650; }
+.pk-box:not(.closed) > .row.entry.container { border-bottom: 1px solid color-mix(in srgb, var(--c) 45%, var(--border)); }
+.pack .row.container .item-name { font-weight: 650; font-size: var(--head); }
+.pk-box[data-level="0"] > .row.entry.container { padding-top: 4px; padding-bottom: 4px; }
+.pk-box[data-level="0"] > .row.entry.container .item-name { font-weight: 700; }
 .pack .caret-space { flex: 0 0 24px; }
 .pack .caret:disabled { opacity: 0.45; cursor: default; }
 .pack .box-mark { flex: 0 0 auto; display: inline-flex; color: color-mix(in srgb, var(--c) 45%, var(--fg)); }
-.pack .inside-count {
-  flex: 0 0 auto; margin-left: 6px; padding: 0 6px; border-radius: 9px; background: var(--bg); border: 1px solid var(--border);
-  color: var(--fg-muted); font-size: 11px; font-weight: 400; line-height: 16px; font-variant-numeric: tabular-nums;
+/* What is directly inside a container, in brief: a chip for each status
+   found there, with how many entries have it, on that status's colour (--c
+   and --t are set on each chip). The status's name is added where a heading
+   has plenty of room (below); chips give up their names before the
+   container's own name is cut short. */
+.pack .inside { flex: 0 12 auto; display: inline-flex; align-items: center; gap: 3px; min-width: 0; margin-left: 6px; overflow: hidden; cursor: default; }
+.pack .inside-chip {
+  flex: 0 1 auto; display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 20px; padding: 0 6px; overflow: hidden;
+  border-radius: 9px; background: var(--c); color: var(--t); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.14);
+  font-size: 11px; font-weight: 600; line-height: 17px; white-space: nowrap;
 }
+.pack .inside-count { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.pack .inside-name { display: none; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+.pack .inside-total { display: none; }
 
 /* The selected entry: the one the arrow keys moved to and the status keys act on. */
 .pack .row.entry.selected, .pk-box > .row.entry.container.selected {
@@ -126,8 +171,9 @@ body[data-page="list"] .toolbar .spacer { flex: 1 1 0; min-width: 0; }
 @media (prefers-reduced-motion: reduce) { .pack .row > .saved { animation: none; } }
 
 /* A box with room for it: the fields in columns on one line, which line up
-   down the box (the actions column is as wide as a heading's three buttons). */
-@container (min-width: 780px) {
+   down the box (the actions column is as wide as a heading's three buttons).
+   (These layouts by width are the screen's; paper has its own, at the end.) */
+@media screen { @container (min-width: 780px) {
   .pack .row.entry {
     grid-template-columns: minmax(150px, 2fr) 100px minmax(70px, 0.8fr) minmax(90px, 1fr) minmax(96px, 150px) minmax(80px, 1.2fr) 84px;
     grid-template-areas: none; padding-top: 0; padding-bottom: 0; min-height: 32px;
@@ -140,12 +186,73 @@ body[data-page="list"] .toolbar .spacer { flex: 1 1 0; min-width: 0; }
   .pack .notes-input { font-size: inherit; }
   .pack .row.entry > .actions { justify-content: flex-end; }
 }
+@container (min-width: 1000px) {
+  .pack .inside-name { display: inline; }
+} }
+
+/* Without the category and storage location (the ⋯ menu): an entry is one
+   line; in a narrow box its notes take a second line, which is only there
+   when there are notes or the entry is selected (to write some). */
+.pack.no-meta .row.entry > .meta { display: none; }
+.pack.no-meta .row.entry { grid-template-areas: "name qty status actions" "notes notes notes notes"; }
+@media screen { @container (max-width: 559.98px) {
+  .pack.no-meta .row.entry:not(.has-notes):not(.selected):not(.new):not(:focus-within) > .notes { display: none; }
+}
+@container (min-width: 560px) {
+  .pack.no-meta .row.entry {
+    grid-template-columns: minmax(150px, 2fr) 100px minmax(96px, 150px) minmax(80px, 1.5fr) 84px;
+    grid-template-areas: none; padding-top: 0; padding-bottom: 0; min-height: 32px;
+  }
+  .pack.no-meta .row.entry > .name, .pack.no-meta .row.entry > .qty, .pack.no-meta .row.entry > .status,
+  .pack.no-meta .row.entry > .notes, .pack.no-meta .row.entry > .actions { grid-area: auto; }
+  .pack.no-meta .notes-input { font-size: inherit; }
+  .pack.no-meta .row.entry > .actions { justify-content: flex-end; }
+} }
+
+/* ---------- drag and drop (js/list/boxes.js) ----------
+   An entry is picked up by its row; the place that would take it is outlined. */
+.pack .row.entry:not(.new) > .name { cursor: grab; }
+.pack .dragging { opacity: 0.4; }
+.pk-box.drop-target, .pk-comp.drop-target { outline: 2px dashed var(--accent); outline-offset: -2px; background: color-mix(in srgb, var(--accent) 13%, var(--bg)); }
+/* The top level: the page as a whole, and a strip that is only there while something is being dragged. */
+.pack.drop-target { outline: 2px dashed var(--accent); outline-offset: 3px; border-radius: var(--radius); }
+.pk-top-drop { display: none; }
+.pack.drag-on .pk-top-drop {
+  display: flex; align-items: center; justify-content: center; position: sticky; bottom: 8px; z-index: 3; margin-top: 10px; min-height: 40px;
+  border: 2px dashed var(--border-strong); border-radius: var(--radius); background: color-mix(in srgb, var(--bg) 88%, transparent);
+  color: var(--fg-muted); font-size: 13px;
+}
+.pack.drag-on.drop-target .pk-top-drop { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg)); }
+
+/* For paper only: a row's tick box (on screen the status chip stands there),
+   and the text boxes' values as text that can wrap. */
+.pack .print-check, .pack .print-text { display: none; }
+
+/* The Sort menu (js/list/sort.js): the columns in effect, in order, each with
+   its direction and a way out; and the columns that can still be added. */
+.toolbar #btn-sort { flex: 0 0 auto; }
+.toolbar #btn-sort .badge { min-width: 16px; padding: 0 4px; line-height: 16px; font-size: 10.5px; }
+.sort-panel { display: flex; flex-direction: column; gap: 8px; min-width: 230px; max-width: 300px; }
+.sort-list { margin: 0; padding: 0 0 0 22px; display: flex; flex-direction: column; gap: 3px; }
+.sort-item { padding-left: 2px; }
+.sort-item::marker { color: var(--fg-muted); font-size: 12px; }
+.sort-item > * { vertical-align: middle; }
+.sort-item-label { display: inline-block; min-width: 110px; }
+.sort-dir, .sort-remove { display: inline-block; padding: 0 7px; line-height: 20px; margin-left: 4px; }
+.sort-remove { color: var(--fg-muted); }
+.sort-remove:hover { color: var(--red); }
+.sort-add { align-self: flex-start; font-size: 12.5px; padding: 3px 6px; cursor: pointer; }
+.sort-clear { align-self: flex-start; font-size: 12px; padding: 2px 8px; }
+.sort-note { margin: 0; font-size: 12px; line-height: 1.4; }
 
 /* Menus opened from a row. */
 .move-menu { max-width: 340px; max-height: min(60vh, 420px); overflow-y: auto; }
 .move-menu button { display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .move-menu .icon { color: var(--fg-muted); }
 .move-menu .combo-empty { padding: 6px 12px 10px; white-space: normal; max-width: 260px; }
+.move-menu button.to-compartment { color: var(--fg-muted); font-size: 12.5px; padding-top: 3px; padding-bottom: 3px; }
+.move-menu button.to-compartment::before { content: "›"; }
+.move-menu button.to-compartment:hover { color: var(--fg); }
 .status-menu button { padding: 5px 10px; }
 .status-menu button[aria-checked="true"] { background: var(--bg-hover); }
 .status-pick { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -153,7 +260,7 @@ body[data-page="list"] .toolbar .spacer { flex: 1 1 0; min-width: 0; }
 
 /* A window too narrow for the title bar's one line: its controls wrap onto
    lines of their own, the legend on the last. */
-@media (max-width: 1100px) {
+@media screen and (max-width: 1100px) {
   body[data-page="list"] .toolbar { flex-wrap: wrap; }
   .toolbar .list-switch { flex: 1 1 150px; min-width: 0; max-width: 100%; }
   body[data-page="list"] .toolbar .filter-box { max-width: none; }
@@ -163,7 +270,7 @@ body[data-page="list"] .toolbar .spacer { flex: 1 1 0; min-width: 0; }
 /* A phone: the boxes stack, and a row's actions take a line under it once it
    is selected (there is no pointer to bring them out, and no room beside the
    status). */
-@media (max-width: 760px) {
+@media screen and (max-width: 760px) {
   .pk-boxes { gap: 6px; }
   .pk-body { padding: 6px; gap: 6px; }
   .pk-box.loose { padding: 0 6px 6px; }
@@ -172,4 +279,103 @@ body[data-page="list"] .toolbar .spacer { flex: 1 1 0; min-width: 0; }
   .pack .row.entry:not(.new):not(.selected) > .actions { display: none; }
   .pack .row.entry > .actions > button { width: 34px; height: 30px; visibility: visible; border-color: var(--border); }
   .pack .row.entry.new > .actions { justify-content: flex-end; }
+  .pack.no-meta .row.entry { grid-template-areas: "name qty status" "notes notes notes" "actions actions actions"; }
+}
+
+/* ---------- print ----------
+   What is on screen, on paper: the same boxes within boxes with the same
+   fields, closed containers closed and the filter applied. Each status chip
+   gives way to an empty box to tick with a pen; the status colours go (a
+   printed list is for ticking off, and saves the ink).
+
+   Paper is set small and close, to get a list onto as few pages as it can:
+   - boxes ask for about half the width they do on screen, so more of them
+     sit side by side;
+   - an entry is one line (name, quantity, category and storage location,
+     tick box) with its notes on a line under it only when it has some, and
+     a list of entries in a wide box runs in several columns;
+   - everything is text that wraps, so nothing is cut short (the text boxes
+     are replaced by .print-text, which boxes.js keeps in step with them);
+   - a top-level container is kept on one page, and so is every container
+     and compartment inside it, wherever that is possible. */
+.print-title h1 { display: inline; margin: 0; font-size: 20px; }
+.print-title .print-sub { display: inline; margin: 0 0 0 8px; color: var(--fg-muted); font-size: 12px; font-weight: 400; }
+@media print {
+  .print-title { margin: 0 0 4px; }
+  .print-title h1 { font-size: 13px; }
+  .print-title .print-sub { font-size: 9px; }
+  .pack { min-height: 0; padding-top: 0; font-size: 9.5px; line-height: 1.2; }
+  .pack .row.entry, .pk-box > .row.entry.container, .pk-box, .pk-comp, .pk-list {
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+
+  /* Boxes: closer together, half as wide, thin neutral frames, heading bands in greys by level. */
+  .pk-boxes { gap: 3px; }
+  .pk-box, .pk-comp { flex-basis: calc(var(--want, 400px) * 0.5); }
+  .pk-box { --c: #8b949e !important; background: #fff; box-shadow: none !important; border-width: 1px; border-radius: 3px; }
+  .pk-box[data-level="0"] { border-width: 1.5px; border-color: #5c6470; border-radius: 4px; }
+  .pk-box[data-level="1"], .pk-box[data-level="2"], .pk-box[data-level="3"] { border-left-width: 3px; }
+  .pk-body, .pk-box[data-level="0"] > .pk-body { padding: 3px; gap: 3px; }
+  .pk-box.loose { padding: 0 3px 3px; border-color: #8b949e; }
+  .pk-box.loose > .pk-list:first-child { margin-top: 3px; }
+  .pk-loose-head { padding: 2px 1px 1px; font-size: 7.5px; }
+  .pk-comp { background: none; padding: 0 3px 3px; gap: 2px; border-radius: 3px; }
+  .pk-comp-head { min-height: 0; padding: 2px 1px 0; gap: 5px; }
+  .pk-comp-name { font-size: 7.5px; }
+  .pk-comp-empty { font-size: 8px; }
+  /* A list of items in a wide box runs in as many columns as fit, rather than leaving the width empty. */
+  .pk-list { display: block; border-radius: 2px; overflow: visible; columns: 215px auto; column-gap: 8px; column-rule: 1px solid var(--border); }
+  .pk-box[data-level="0"] > .row.entry.container { background: #d5d9df; }
+  .pk-box[data-level="1"] > .row.entry.container { background: #e3e6ea; }
+  .pk-box[data-level="2"] > .row.entry.container, .pk-box[data-level="3"] > .row.entry.container { background: #eff1f3; }
+  .pk-box > .row.entry.container { border-radius: 2px 2px 0 0; }
+
+  /* An entry: one line of wrapping text cells; its notes, when it has some, on a line of their own. */
+  .pack .row.entry, .pack.no-meta .row.entry {
+    --c: transparent !important; background: none; box-shadow: none;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.2fr) 10px;
+    grid-template-areas: "name qty meta status" "notes notes notes notes";
+    column-gap: 5px; align-items: start; min-height: 0; padding: 1.5px 3px;
+  }
+  .pack.no-meta .row.entry { grid-template-columns: minmax(0, 1fr) auto 10px; grid-template-areas: "name qty status" "notes notes notes"; }
+  .pk-box > .row.entry.container, .pk-box[data-level="0"] > .row.entry.container { padding: 2px 3px; }
+  .pack .row.entry > * { display: block; padding: 0; overflow: visible; white-space: normal; overflow-wrap: break-word; min-height: 0; }
+  .pack .row.entry > .name { grid-area: name; cursor: auto; min-height: 0; }
+  .pack .row.entry > .qty { grid-area: qty; white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+  .pack .row.entry > .meta { grid-area: meta; display: block; font-size: 8px; color: var(--fg-muted); padding-top: 1px; }
+  .pack .row.entry > .status { grid-area: status; padding-top: 1px; }
+  .pack .row.entry > .notes { grid-area: notes; display: none; }
+  .pack .row.entry.has-notes > .notes { display: block; padding: 0 0 0 8px; font-size: 8.5px; font-style: italic; }
+  .pack .item-name { display: inline; padding: 0; overflow: visible; white-space: normal; }
+  .pack .row.container .item-name { font-size: 9.5px; font-weight: 700; }
+  .pk-box[data-level="0"] > .row.entry.container .item-name { font-size: 11px; }
+  .pk-box[data-level="1"] > .row.entry.container .item-name { font-size: 10px; }
+  .pack .meta > span { display: inline; overflow: visible; white-space: normal; }
+  /* (With spaces of its own, so that the line can break between the two.) */
+  .pack .meta > .location:not(:empty)::before { content: " · "; margin: 0; }
+  .pack .row.dim .item-name, .pack .row.dim .qty, .pack .row.dim .meta, .pack .row.dim .notes { opacity: 1; }
+  .pack .row.entry.selected, .pk-box > .row.entry.container.selected { outline: none; }
+  .pk-box > .row.entry.container.selected { background: revert-layer; }
+
+  /* Text in place of the text boxes; a tick box in place of the status chip. */
+  .pack .cell-input, .pack .cell-select { display: none !important; }
+  .pack .print-text { display: inline; }
+  .pack .status .status-chip { display: none; }
+  .pack .print-check { display: block; width: 8.5px; height: 8.5px; border: 1px solid #1c1f24; border-radius: 1.5px; background: #fff; }
+  /* The statuses of what is inside go with the colours; how many entries are inside stays. */
+  .pack .inside { display: inline; margin-left: 4px; overflow: visible; }
+  .pack .inside-chip { display: none; }
+  .pack .inside-total { display: inline; color: var(--fg-muted); font-size: 8px; font-weight: 400; }
+  .pack .inside-total::before { content: "("; }
+  .pack .inside-total::after { content: ")"; }
+
+  /* Nothing to press, nothing waiting to be typed. */
+  .pack .caret, .pack .caret-space, .pack .box-mark, .pack .add-to-compartment, .pack .row.entry.new, .pk-box.adding, .pk-top-drop { display: none !important; }
+  .list-empty button { display: none; }
+
+  /* Pages: a container stays whole wherever it can (the outermost ones first
+     of all), an entry is never split, and a heading is not left behind by
+     what it heads. */
+  .pk-box, .pk-comp, .pk-list, .pack .row.entry { break-inside: avoid; }
+  .pk-box > .row.entry.container, .pk-comp-head, .pk-loose-head, .print-title { break-after: avoid; }
 }

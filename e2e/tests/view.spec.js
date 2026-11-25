@@ -1,7 +1,7 @@
 // A list (static/js/list/boxes.js): containers as boxes within boxes with
 // their items listed inside, tinted by status; opening and closing
 // containers, the arrow keys, and the status keys.
-import { test, expect, openList, row, box, rowNames, selectedName, listMenu, saved, toast } from './helpers.js';
+import { test, expect, openList, row, box, rowNames, selectedName, saved, toast } from './helpers.js';
 
 // Car > Blue Backpack > Hygiene Kit > (Comb, Toothbrush); Car > Camp Chair; and a loose Sun Hat.
 const TRIP = [
@@ -48,8 +48,8 @@ test('containers are boxes within boxes, and the items in each are listed inside
   expect(brush.y).toBeGreaterThanOrEqual(comb.y + comb.height - 1);
   expect(Math.abs(brush.x - comb.x)).toBeLessThan(1);
 
-  // A container says how many entries are inside it, at every depth.
-  await expect(row(page, 'Car').locator('.inside-count')).toHaveText('8');
+  // A container says how many entries are directly inside it (here all of one status: one chip).
+  await expect(row(page, 'Car').locator('.inside-count')).toHaveText('3');
   await expect(row(page, 'Hygiene Kit').locator('.inside-count')).toHaveText('2');
   // Every field of an entry is on its row, a container's on its heading.
   const socks = row(page, 'Socks');
@@ -339,9 +339,13 @@ test('the filter keeps matches and the containers they are in; sorting reorders 
 
   // Sorted by category, the backpack's loose items go Clothing (Socks) then Electronics (Camera); by name the other way.
   expect(await rowNames(page)).toEqual(['Car', 'Blue Backpack', 'Hygiene Kit', 'Comb', 'Toothbrush', 'Camera', 'Socks', 'Camp Chair', 'Sun Hat']);
-  await listMenu(page, 'Sort by category');
+  await page.locator('#btn-sort').click();
+  await page.locator('.sort-add').selectOption('category');
+  await page.keyboard.press('Escape');
   expect(await rowNames(page)).toEqual(['Car', 'Blue Backpack', 'Hygiene Kit', 'Comb', 'Toothbrush', 'Socks', 'Camera', 'Camp Chair', 'Sun Hat']);
-  await listMenu(page, 'Sort by name');
+  await page.locator('#btn-sort').click();
+  await page.locator('.sort-remove').click();
+  await page.keyboard.press('Escape');
   expect(await rowNames(page)).toEqual(['Car', 'Blue Backpack', 'Hygiene Kit', 'Comb', 'Toothbrush', 'Camera', 'Socks', 'Camp Chair', 'Sun Hat']);
 });
 
